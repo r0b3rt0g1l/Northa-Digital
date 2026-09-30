@@ -312,6 +312,106 @@ describe('funciones puras', () => {
     await assert.rejects(caido.pedir('http://x.test/c'), (err) => err instanceof va.ErrorRed && /ECONNREFUSED/.test(err.message) && err.intentos === 2);
     assert.equal(llamadas, 2);
   });
+
+  test('decodificarEntidades no resuelve nombres de Object.prototype (&constructor; &toString;)', () => {
+    const texto = 'a &constructor; b &toString; c &valueOf; d &__proto__; e &hasOwnProperty; &CONSTRUCTOR;';
+    assert.equal(va.decodificarEntidades(texto), texto);
+    assert.ok(!va.contieneTexto('<p>&valueOf;</p>', 'function valueOf() { [native code] }'));
+    assert.ok(va.contieneTexto('<p>&valueOf;</p>', '&valueOf;'));
+  });
+
+  test('normalizarPortal/normalizarBaseApi rechazan ?consulta, #fragmento y credenciales', () => {
+    for (const malo of ['https://x.test/?nocache=1', 'https://x.test?nocache=1', 'x.test/#ancla', 'https://x.test/portal?', 'https://x.test#']) {
+      assert.throws(() => va.normalizarPortal(malo), (err) => err instanceof va.ErrorUso && /no admite \?consulta ni #fragmento/.test(err.message), malo);
+    }
+    assert.throws(() => va.normalizarPortal('https://usuario:clave@x.test'), /usuario ni contraseña/);
+    assert.throws(() => va.normalizarBaseApi('https://api.x.test/?v=2'), /--api no admite \?consulta/);
+    assert.equal(va.normalizarPortal('http://127.0.0.1:3000/portal//'), 'http://127.0.0.1:3000/portal');
+    assert.equal(va.normalizarPortal('HTTPS://Carbotransparencia.com.mx'), 'https://carbotransparencia.com.mx');
+  });
+
+  test('urlPortal arma las rutas sobre la base (con o sin subruta)', () => {
+    assert.equal(va.urlPortal('https://x.test', '/'), 'https://x.test/');
+    assert.equal(va.urlPortal('https://x.test', '/transparencia/sevac'), 'https://x.test/transparencia/sevac');
+    assert.equal(va.urlPortal('http://127.0.0.1:9/portal', '/transparencia/sevac'), 'http://127.0.0.1:9/portal/transparencia/sevac');
+    assert.equal(va.urlPortal('http://127.0.0.1:9/portal', '/'), 'http://127.0.0.1:9/portal/');
+  });
+
+  test('clasificarRedireccion: equivalente (barra, https, www) frente a distinta (host o ruta)', () => {
+    const c = (a, b) => va.clasificarRedireccion(a, b).tipo;
+    assert.equal(c('https://x.test/', 'https://x.test/'), 'ninguna');
+    assert.equal(c('https://x.test/', undefined), 'ninguna');
+    assert.equal(c('https://x.test/portal/', 'https://x.test/portal'), 'equivalente');
+    assert.equal(c('http://x.test/', 'https://x.test/'), 'equivalente');
+    assert.equal(c('https://banamichitransparencia.com.mx/', 'https://www.banamichitransparencia.com.mx/'), 'equivalente');
+    assert.equal(c('https://www.x.test/transparencia/sevac', 'https://x.test/transparencia/sevac'), 'equivalente');
+    assert.equal(c('https://x.test/transparencia/sevac', 'https://x.test/transparencia'), 'distinta');
+    assert.equal(c('https://x.test/', 'https://otro.test/'), 'distinta');
+    assert.equal(c('https://x.test/', 'https://x.test/login'), 'distinta');
+    assert.equal(c('https://x.test/', 'http://x.test/'), 'distinta', 'bajar a http no es equivalente');
+    assert.equal(c('http://127.0.0.1:3000/', 'http://127.0.0.1:4000/'), 'distinta', 'otro puerto');
+    assert.match(va.clasificarRedireccion('https://x.test/', 'https://otro.test/').nota, /redirigido a https:\/\/otro\.test\//);
+  });
+
+  test('crearBuscadorTexto: exacta, solo ignorando mayúsculas (CSS), solo ignorando acentos, ausente', () => {
+    const html = '<h3 class="font-bold capitalize">c. sylvia lenika placencia leal</h3>'
+      + '<p class="uppercase">presidenta&nbsp;municipal</p><p>Municipio de Carbo, Sonora</p>';
+    const buscar = va.crearBuscadorTexto(html);
+    assert.deepEqual(buscar('c. sylvia lenika placencia leal'), { coincidencia: 'exacta', fragmento: 'c. sylvia lenika placencia leal' });
+    assert.deepEqual(buscar('C. Sylvia Lenika Placencia Leal'), { coincidencia: 'mayusculas', fragmento: 'c. sylvia lenika placencia leal' });
+    assert.deepEqual(buscar('PRESIDENTA MUNICIPAL'), { coincidencia: 'mayusculas', fragmento: 'presidenta municipal' });
+    assert.deepEqual(buscar('municipio de carbó'), { coincidencia: 'acentos', fragmento: 'Municipio de Carbo' });
+    assert.deepEqual(buscar('Bienvenidos'), { coincidencia: null, fragmento: null });
+    assert.equal(va.buscarTexto(HTML_PORTADA, 'bienvenidos a villa pesqueira').fragmento, 'Bienvenidos a Villa Pesqueira');
+  });
+
+  test('crearBuscadorTexto: límites de palabra, prioridad al texto visible y mapa de posiciones', () => {
+    // La búsqueda aproximada exige palabra completa (la exacta sigue siendo por subcadena).
+    const dominio = '<a href="https://carbotransparencia.com.mx">carbotransparencia.com.mx</a>';
+    assert.equal(va.buscarTexto(dominio, 'Carbo').coincidencia, null);
+    assert.equal(va.buscarTexto(dominio, 'carbo').coincidencia, 'exacta');
+    // Muestra el texto visible (lo que transforma el CSS), no el alt="" ni el payload JSON.
+    const html = '<img alt="C. SYLVIA LEAL"><h3 class="capitalize">c. sylvia leal</h3>'
+      + '<script>self.__next_f.push([1,"{\\"nombre\\":\\"C. SYLVIA LEAL\\"}"])</script>';
+    assert.deepEqual(va.buscarTexto(html, 'C. Sylvia Leal'), { coincidencia: 'mayusculas', fragmento: 'c. sylvia leal' });
+    // Letras cuya minúscula cambia de longitud ('İ' -> 'i̇'): el fragmento se recorta bien.
+    assert.deepEqual(va.buscarTexto('<p>DİRECCIÓN de Obras Públicas</p>', 'direccion de obras'),
+      { coincidencia: 'acentos', fragmento: 'DİRECCIÓN de Obras' });
+  });
+
+  test('plegarSlug y slugsParecidos: mayúsculas, acentos y guiones', () => {
+    assert.equal(va.plegarSlug('Villa-Pésqueira'), 'villapesqueira');
+    const lista = [{ slug: 'villapesqueira' }, { slug: 'mazatan' }, { slug: 'rayon' }, null, { slug: 7 }];
+    assert.deepEqual(va.slugsParecidos(lista, 'villapésqueira'), ['villapesqueira']);
+    assert.deepEqual(va.slugsParecidos(lista, 'mazatán'), ['mazatan']);
+    assert.deepEqual(va.slugsParecidos(lista, 'villa-pesqueira'), ['villapesqueira']);
+    assert.deepEqual(va.slugsParecidos(lista, 'Rayon'), ['rayon']);
+    assert.deepEqual(va.slugsParecidos(lista, 'rayon'), [], 'el slug exacto no es "parecido"');
+    assert.deepEqual(va.slugsParecidos(lista, 'carbo'), []);
+  });
+
+  test('crearCliente limita un timeout enorme a 2^31-1 ms (sin TimeoutOverflowWarning ni aborto a 1 ms)', async () => {
+    const avisos = [];
+    const escuchar = (w) => avisos.push(w.name);
+    process.on('warning', escuchar);
+    try {
+      const cliente = va.crearCliente({
+        timeoutMs: 3_000_000_000,
+        esperaReintentoMs: 0,
+        fetchImpl: (url, { signal }) => new Promise((resolver, rechazar) => {
+          const t = setTimeout(() => resolver(new Response('[]', { status: 200 })), 30);
+          signal.addEventListener('abort', () => { clearTimeout(t); rechazar(new Error('abortado')); });
+        }),
+      });
+      const r = await cliente.pedir('http://x.test/a');
+      assert.equal(r.status, 200);
+      assert.equal(r.intentos, 1);
+      await va.dormir(5);
+      assert.ok(!avisos.includes('TimeoutOverflowWarning'), avisos.join(', '));
+    } finally {
+      process.off('warning', escuchar);
+    }
+  });
 });
 
 describe('argumentos', () => {
@@ -340,6 +440,36 @@ describe('argumentos', () => {
     assert.throws(() => va.analizarArgumentos(['x', '--nombre']), /requiere un valor/);
     assert.throws(() => va.analizarArgumentos(['x', '--portal', 'p.test', '--esperar-texto', '-10%']), /--esperar-texto="valor"/);
     assert.deepEqual(va.analizarArgumentos(['x', '--portal', 'p.test', '--esperar-texto=-10%']).esperarTexto, ['-10%']);
+  });
+
+  test('opción booleana con valor: "no admite valor" (no "requiere un valor")', async () => {
+    assert.throws(() => va.analizarArgumentos(['carbo', '--json=true']), (err) => err instanceof va.ErrorUso
+      && err.message === 'La opción --json no admite valor: escribe solo --json.');
+    assert.throws(() => va.analizarArgumentos(['carbo', '--ayuda=si']), (err) => err.message === 'La opción --ayuda no admite valor: escribe solo --ayuda.');
+    assert.throws(() => va.analizarArgumentos(['carbo', '--portal']), (err) => err.message === 'La opción --portal requiere un valor.');
+    const r = await correr(['carbo', '--json=true']);
+    assert.equal(r.codigo, 3);
+    assert.match(r.errores, /^Error: La opción --json no admite valor/);
+  });
+
+  test('--timeout por encima de 2^31-1 ms => error de uso; el máximo se acepta', () => {
+    assert.throws(() => va.analizarArgumentos(['x', '--timeout', '3000000000']), (err) => err instanceof va.ErrorUso && /no puede pasar de 2147483647 ms/.test(err.message));
+    assert.throws(() => va.analizarArgumentos(['x', '--timeout', '2147483648']), /no puede pasar de/);
+    assert.equal(va.analizarArgumentos(['x', '--timeout', '2147483647']).timeoutMs, va.TIMEOUT_MAXIMO_MS);
+  });
+
+  test('--portal con ?consulta o #fragmento => error de uso (3) antes de cualquier petición', async () => {
+    const srv = await levantar();
+    try {
+      for (const portal of [`${srv.portal}?nocache=1`, `${srv.portal}#ancla`]) {
+        const r = await correr(['villapesqueira', '--api', srv.base, '--portal', portal]);
+        assert.equal(r.codigo, 3, portal);
+        assert.match(r.errores, /--portal no admite \?consulta ni #fragmento/);
+      }
+      assert.equal(srv.estado.peticiones.length, 0);
+    } finally {
+      await srv.cerrar();
+    }
   });
 
   test('error de uso => código 3 (nunca 2, para no atrapar bucles de espera)', async () => {
@@ -743,6 +873,247 @@ describe('verificación contra API simulada', () => {
   });
 });
 
+describe('portal: redirecciones y textos con otras mayúsculas', () => {
+  const redirigir = (res, destino, status = 307) => {
+    res.writeHead(status, { location: destino });
+    res.end();
+    return true;
+  };
+
+  test('/ y /transparencia/sevac redirigen a otra página con 200 => FALLA en ambas (1), sin revisar textos', async () => {
+    const srv = await levantar((e) => {
+      e.portal['/otro-sitio'] = { html: '<h1>Northa Digital: sitio no configurado</h1>' };
+      e.interceptar = (req, res, partes) => (partes[0] === 'portal' && partes[1] !== 'otro-sitio'
+        ? redirigir(res, '/portal/otro-sitio') : false);
+    });
+    try {
+      const { codigo, informe } = await correrJson(srv, 'villapesqueira', [
+        '--portal', srv.portal, '--nombre', 'Villa Pesqueira', '--esperar-texto', 'Bienvenidos a Villa Pesqueira',
+      ]);
+      assert.equal(codigo, 1);
+      const portada = fila(informe, 'portada /');
+      assert.equal(portada.estado, 'FALLA');
+      assert.match(portada.detalle, /redirige a otra página: http:\/\/127\.0\.0\.1:\d+\/portal\/otro-sitio \(200\).*--portal; no se revisan los textos/);
+      assert.equal(portada.datos.redireccion, 'distinta');
+      const sevac = fila(informe, '/transparencia/sevac');
+      assert.equal(sevac.estado, 'FALLA');
+      assert.match(sevac.detalle, /redirige a otra página: .*\/portal\/otro-sitio/);
+      assert.equal(filas(informe, 'texto esperado').length, 0);
+      assert.equal(filas(informe, 'nombre en HTML').length, 0);
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('ruta SEVAC retirada que redirige a /transparencia => FALLA (la portada sigue OK)', async () => {
+    const srv = await levantar((e) => {
+      e.portal['/transparencia'] = { html: '<h1>Transparencia</h1>' };
+      e.interceptar = (req, res, partes) => (partes.join('/') === 'portal/transparencia/sevac'
+        ? redirigir(res, '/portal/transparencia', 308) : false);
+    });
+    try {
+      const { codigo, informe } = await correrJson(srv, 'villapesqueira', ['--portal', srv.portal]);
+      assert.equal(codigo, 1);
+      assert.equal(fila(informe, 'portada /').estado, 'OK');
+      assert.match(fila(informe, '/transparencia/sevac').detalle, /redirige a otra página: .*\/portal\/transparencia \(200\)/);
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('redirección al mismo sitio y ruta (barra final) => OK y se informa', async () => {
+    const srv = await levantar((e) => {
+      e.interceptar = (req, res) => (req.url === '/portal/' ? redirigir(res, '/portal', 308) : false);
+    });
+    try {
+      const { codigo, informe } = await correrJson(srv, 'villapesqueira', [
+        '--portal', srv.portal, '--esperar-texto', 'Bienvenidos a Villa Pesqueira',
+      ]);
+      assert.equal(codigo, 0, JSON.stringify(conEstado(informe, 'FALLA'), null, 2));
+      const portada = fila(informe, 'portada /');
+      assert.equal(portada.estado, 'OK');
+      assert.match(portada.detalle, /redirigido a http:\/\/127\.0\.0\.1:\d+\/portal: mismo sitio/);
+      assert.equal(fila(informe, 'texto esperado').estado, 'OK');
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('texto con otras mayúsculas por CSS => AVISO (0) sin culpar a la caché; sin acentos => FALLA; ausente => FALLA con caché', async () => {
+    const srv = await levantar((e) => {
+      e.portal['/'].html = `${HTML_PORTADA}<h3 class="text-lg font-bold capitalize">c. sylvia lenika placencia leal</h3>`
+        + '<p class="capitalize">presidenta municipal</p><p>Comite de Transparencia</p>';
+      e.portal['/'].cabeceras = { 'x-vercel-cache': 'HIT', age: '20', 'x-nextjs-stale-time': '300' };
+    });
+    try {
+      const a = await correrJson(srv, 'villapesqueira', [
+        '--portal', srv.portal,
+        '--esperar-texto', 'C. Sylvia Lenika Placencia Leal', '--esperar-texto', 'Presidenta Municipal',
+      ]);
+      assert.equal(a.codigo, 0, JSON.stringify(conEstado(a.informe, 'FALLA'), null, 2));
+      const [sylvia, presidenta] = filas(a.informe, 'texto esperado');
+      assert.equal(sylvia.estado, 'AVISO');
+      assert.match(sylvia.detalle, /solo aparece ignorando mayúsculas: en el HTML está "c\. sylvia lenika placencia leal" \(probable text-transform/);
+      assert.doesNotMatch(sylvia.detalle, /puede ser la caché ISR|reintenta después/);
+      assert.equal(sylvia.datos.enHtml, 'c. sylvia lenika placencia leal');
+      assert.equal(presidenta.estado, 'AVISO');
+      assert.equal(a.informe.resumen.aviso, 2);
+
+      const b = await correrJson(srv, 'villapesqueira', ['--portal', srv.portal, '--esperar-texto', 'Comité de Transparencia']);
+      assert.equal(b.codigo, 1);
+      assert.match(fila(b.informe, 'texto esperado').detalle, /solo aparece ignorando acentos: en el HTML está "Comite de Transparencia"; revisa la ortografía/);
+
+      const c = await correrJson(srv, 'villapesqueira', ['--portal', srv.portal, '--esperar-texto', 'Cabildo abierto 2027']);
+      assert.equal(c.codigo, 1);
+      assert.match(fila(c.informe, 'texto esperado').detalle, /no aparece "Cabildo abierto 2027"; puede ser la caché ISR.*reintenta después/);
+
+      // --nombre en el HTML ignora mayúsculas (sigue exigiéndose tal cual en la API).
+      srv.estado.escenario.portal['/'].html = '<h1 class="uppercase">h. ayuntamiento de villa pesqueira</h1>';
+      const d = await correrJson(srv, 'villapesqueira', ['--portal', srv.portal, '--nombre', 'Villa Pesqueira']);
+      assert.equal(d.codigo, 0);
+      assert.equal(fila(d.informe, 'nombre').estado, 'OK');
+      const nombreHtml = fila(d.informe, 'nombre en HTML');
+      assert.equal(nombreHtml.estado, 'OK');
+      assert.match(nombreHtml.detalle, /ignorando mayúsculas \(en el HTML: "villa pesqueira"\)/);
+    } finally {
+      await srv.cerrar();
+    }
+  });
+});
+
+describe('alta pendiente solo cuando esperar tiene sentido (2)', () => {
+  test('slug con acento o con guion de más, existiendo el correcto => 1 (no espera para siempre)', async () => {
+    const srv = await levantar();
+    try {
+      for (const slug of ['villapésqueira', 'villa-pesqueira', 'Villa-Pesqueira']) {
+        const { codigo, informe } = await correrJson(srv, slug);
+        assert.equal(codigo, 1, slug);
+        assert.match(fila(informe, 'slug parecido').detalle, /no existe ".*" pero sí "villapesqueira": los slugs distinguen mayúsculas, acentos y guiones/);
+        assert.match(informe.mensaje, /usa el slug exacto/);
+      }
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('slug con formato inválido y sin parecido => 1 (nunca 2)', async () => {
+    const srv = await levantar();
+    try {
+      for (const slug of ['pueblo_nuevo', 'Pueblo Nuevo', 'álamos']) {
+        const { codigo, informe } = await correrJson(srv, slug);
+        assert.equal(codigo, 1, slug);
+        const formato = fila(informe, 'formato slug');
+        assert.equal(formato.estado, 'FALLA');
+        assert.match(formato.detalle, /no existe y no es un slug válido/);
+        assert.match(informe.mensaje, /no tiene sentido esperar/);
+      }
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('en el listado con el mismo slug pero detalle 404 => 1, no ALTA_PENDIENTE', async () => {
+    const srv = await levantar((e) => {
+      e.municipios[1].activo = false;
+      e.interceptar = (req, res, partes) => {
+        if (partes.join('/') === 'api/municipios/villapesqueira') {
+          enviarJson(req, res, 404, { error: 'Municipio no encontrado' });
+          return true;
+        }
+        return false;
+      };
+    });
+    try {
+      const { codigo, informe } = await correrJson(srv, 'villapesqueira');
+      assert.equal(codigo, 1);
+      assert.equal(informe.resultado, 'FALLA');
+      assert.match(fila(informe, 'aparece 1 vez').detalle, /SÍ aparece en GET \/api\/municipios \(id 11111111-2222-4333-8444-555555555555, activo=false\) aunque su detalle da 404/);
+      assert.match(informe.mensaje, /no es un alta pendiente/);
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('si el listado no responde, el 404 del detalle sigue siendo ALTA_PENDIENTE (2) con AVISO', async () => {
+    const srv = await levantar((e) => {
+      e.municipios = e.municipios.filter((m) => m.slug !== 'villapesqueira');
+      e.interceptar = (req, res, partes) => {
+        if (partes.join('/') === 'api/municipios') { enviarJson(req, res, 500, { error: 'Error interno' }); return true; }
+        return false;
+      };
+    });
+    try {
+      const { codigo, informe } = await correrJson(srv, 'villapesqueira');
+      assert.equal(codigo, 2);
+      assert.equal(fila(informe, 'slug parecido').estado, 'AVISO');
+      assert.match(fila(informe, 'slug parecido').detalle, /no se pudo revisar el listado.*500 "Error interno"/);
+    } finally {
+      await srv.cerrar();
+    }
+  });
+});
+
+describe('la API no responde a alguna consulta => 3 (no 1)', () => {
+  const nuncaResponde = (condicion) => (e) => {
+    e.interceptar = (req, res, partes) => condicion(partes.join('/'));
+  };
+
+  test('una subruta sin respuesta (timeout) => 3', async () => {
+    const srv = await levantar(nuncaResponde((ruta) => ruta === 'api/municipios/villapesqueira/hero'));
+    try {
+      const { codigo, informe } = await correrJson(srv, 'villapesqueira', ['--timeout', '150']);
+      assert.equal(codigo, 3);
+      assert.equal(informe.resultado, 'ERROR');
+      const hero = fila(informe, 'hero');
+      assert.equal(hero.estado, 'FALLA');
+      assert.equal(hero.datos.errorRed, true);
+      assert.match(hero.detalle, /tiempo de espera agotado \(150 ms\) tras 2 intentos/);
+      assert.match(informe.mensaje, /La API no respondió a 1 consulta \(error de red o tiempo de espera\)/);
+      assert.equal(fila(informe, 'sevac').estado, 'OK', 'lo demás se revisa igual');
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('el listado o el detalle de la noticia sin respuesta => 3', async () => {
+    const srv = await levantar(nuncaResponde((ruta) => ruta === 'api/municipios' || ruta.startsWith('api/municipios/villapesqueira/noticias/')));
+    try {
+      const { codigo, informe } = await correrJson(srv, 'villapesqueira', ['--timeout', '150']);
+      assert.equal(codigo, 3);
+      assert.equal(fila(informe, 'aparece 1 vez').datos.errorRed, true);
+      assert.equal(fila(informe, 'noticias (detalle)').datos.errorRed, true);
+      assert.match(informe.mensaje, /no respondió a 2 consultas/);
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('error de red de la API + una FALLA de contenido => 1 (la FALLA manda)', async () => {
+    const srv = await levantar((e) => {
+      e.contenido.villapesqueira.funcionarios.push({ id: 'f-ajeno', municipioId: ID_OTRO });
+      nuncaResponde((ruta) => ruta === 'api/municipios/villapesqueira/hero')(e);
+    });
+    try {
+      const { codigo, informe } = await correrJson(srv, 'villapesqueira', ['--timeout', '150']);
+      assert.equal(codigo, 1);
+      assert.match(informe.mensaje, /Hay 2 fallas \(1 por error de red de la API\)/);
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('el portal caído sigue siendo FALLA (1): no es la API', async () => {
+    const srv = await levantar(nuncaResponde((ruta) => ruta.startsWith('portal')));
+    try {
+      const { codigo, informe } = await correrJson(srv, 'villapesqueira', ['--portal', srv.portal, '--timeout', '150']);
+      assert.equal(codigo, 1);
+      assert.match(fila(informe, 'portada /').detalle, /inalcanzable: tiempo de espera agotado/);
+    } finally {
+      await srv.cerrar();
+    }
+  });
+});
+
 describe('API caída o inesperada => 3', () => {
   test('conexión rechazada', async () => {
     const srv = await levantar();
@@ -819,10 +1190,16 @@ describe('como proceso', () => {
     let consultas = 0;
     srv = await levantar((e) => {
       // "nuevo" aparece en la BD a partir de la 3.ª consulta (simula que el alta termina).
+      // Mientras tanto tampoco está en el listado (si estuviera, no sería un alta pendiente).
       e.interceptar = (req, res, partes) => {
-        if (partes.join('/') === 'api/municipios/nuevo') {
+        const ruta = partes.join('/');
+        if (ruta === 'api/municipios/nuevo') {
           consultas++;
           if (consultas < 3) { enviarJson(req, res, 404, { error: 'Municipio no encontrado' }); return true; }
+        }
+        if (ruta === 'api/municipios' && consultas < 3) {
+          enviarJson(req, res, 200, e.municipios.filter((m) => m.slug !== 'nuevo'));
+          return true;
         }
         return false;
       };
@@ -850,7 +1227,8 @@ describe('como proceso', () => {
   });
 
   test('el bucle documentado en --ayuda espera con 2 y termina con 0', { skip: !existsSync('/bin/bash') && 'sin bash' }, async () => {
-    const comando = `node ${JSON.stringify(SCRIPT)} nuevo --api ${srv.base} --timeout 3000 --json > /dev/null`;
+    // process.execPath y no "node": el del PATH puede no existir o ser otra versión.
+    const comando = `${JSON.stringify(process.execPath)} ${JSON.stringify(SCRIPT)} nuevo --api ${srv.base} --timeout 3000 --json > /dev/null`;
     const bucle = va.ejemploBucle({ comando, pausa: 0.05 });
     const r = await ejecutarProceso('/bin/bash', ['-c', bucle]);
     assert.equal(r.codigo, 0, r.stderr);

@@ -11,29 +11,34 @@
 //   2. En cada lista, todo municipioId presente es igual al id del tenant.
 //   3. Ningún id de elemento se repite entre tenants distintos en la misma colección.
 //   4. Detalle cruzado: muestras de noticias y atractivos (por slug) y de
-//      funcionarios (por id) responden 200 bajo su tenant y 404 bajo otro tenant
-//      (el siguiente de la lista, circular). Si el otro tenant tiene un elemento
-//      PROPIO con el mismo slug, no es fuga (se reporta como INFO).
+//      funcionarios (por id) responden 200 bajo su tenant y 404 "… no encontrado"
+//      bajo otro tenant (el siguiente de la lista, circular, que esté activo y cuyas
+//      listas respondan). Si el otro tenant tiene un elemento PROPIO con el mismo
+//      slug, no es fuga (se reporta como INFO). Un 404 solo cuenta como aislamiento
+//      si el detalle propio respondió 200 con datos y el cuerpo es el JSON de
+//      "no encontrado" de esa colección; si en una colección muestreada ningún
+//      cruzado es concluyente, es ERROR (la prueba no demostró nada).
 //
-// SOLO LECTURA: únicamente GET. Node >= 18, sin dependencias.
+// SOLO LECTURA: únicamente GET. Node >= 18 (incluido 18.0: no usa util.parseArgs),
+// sin dependencias. Cortacircuitos: tras varios fallos de red seguidos deja de pedir.
 //
 // Uso:
 //   node scripts/verificacion/aislamiento-publico.mjs [--incluir villapesqueira[,otro]]
 //        [--solo carbo,sanjavier] [--muestras 3] [--api URL] [--json] [--timeout ms]
 //        [--concurrencia 3] [--max-peticiones 500]
 //
-// Códigos de salida: 0 sin fugas · 1 fuga detectada · 2 uso incorrecto ·
-//                    3 error de red o respuesta inesperada.
+// Códigos de salida: 0 sin fugas · 1 fuga detectada ·
+//                    3 error de red, respuesta inesperada, revisión no concluyente
+//                      o argumentos no válidos.
 
 import fs from 'node:fs';
-import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // Constantes
 // ---------------------------------------------------------------------------
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 export const API_POR_DEFECTO = 'https://api.northadigital.com';
 
 /** Subrutas públicas por tenant; todas responden un arreglo. */
@@ -51,7 +56,19 @@ export const DETALLES = [
   { coleccion: 'funcionarios', clave: 'id' },
 ];
 
-export const CODIGOS = Object.freeze({ SIN_FUGAS: 0, FUGA: 1, USO: 2, ERROR: 3 });
+/**
+ * Mensaje exacto del 404 de la API cuando el elemento no existe bajo ese tenant.
+ * Solo este 404 (JSON) demuestra aislamiento; cualquier otro 404 no es concluyente.
+ */
+export const MENSAJE_NO_ENCONTRADO = Object.freeze({
+  noticias: 'Noticia no encontrada',
+  atractivos: 'Atractivo no encontrado',
+  funcionarios: 'Funcionario no encontrado',
+});
+
+// Uso incorrecto comparte el código 3 con los errores, como el resto de la suite
+// (en verificar-alta el 2 es ALTA_PENDIENTE y en medir-publicacion NO_APARECIO).
+export const CODIGOS = Object.freeze({ SIN_FUGAS: 0, FUGA: 1, ERROR: 3, USO: 3 });
 
 /** Tipos de hallazgo, de mayor a menor severidad. */
 export const TIPOS = ['FUGA', 'ERROR', 'AVISO', 'INFO'];
@@ -62,7 +79,15 @@ export const PREDETERMINADOS = Object.freeze({
   concurrencia: 3,
   maxPeticiones: 500,
   retrasoReintento: 500,
+  /** Fallos de red/timeouts seguidos (ya con su reintento) que abren el cortacircuitos. */
+  fallosSeguidos: 5,
 });
+
+/**
+ * Máximo de tenants FUERA de la selección cuyas listas se cargan para usarlos como
+ * "otro" en el detalle cruzado (p. ej. con --solo de un único tenant).
+ */
+export const MAX_OTROS_EXTERNOS = 3;
 
 const PATRON_SLUG = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
@@ -85,6 +110,8 @@ Opciones:
                          resuelven con GET /api/municipios/<slug>; si responde 404 se
                          avisa "aún no dado de alta" y se omiten. Repetible.
   --solo a[,b]           Revisa solo estos slugs (sensible a mayúsculas). Repetible.
+                         Si ninguno existe es ERROR (código 3), salvo que todos estén
+                         pendientes de alta vía --incluir (AVISO).
   --muestras N           Elementos por colección para el detalle cruzado (por
                          defecto ${PREDETERMINADOS.muestras}; 0 desactiva el detalle).
   --api URL              Base de la API (por defecto ${API_POR_DEFECTO}).
@@ -99,13 +126,20 @@ Qué revisa:
      sevac (y documentos/imagenes/noticias si lo traen) = id del tenant.
   2. Ids repetidos entre tenants distintos en la misma colección.
   3. Detalle de noticias/atractivos (por slug) y funcionarios (por id): 200 bajo su
-     tenant y 404 bajo el siguiente tenant de la lista (circular).
+     tenant y 404 {"error":"… no encontrado"} bajo el siguiente tenant (circular)
+     que esté activo y cuyas listas respondan. Un 404 solo cuenta como aislamiento
+     si el detalle propio dio 200; si en una colección ningún cruzado es
+     concluyente, es ERROR.
 
 Códigos de salida:
-  0  sin fugas          1  fuga detectada
-  2  uso incorrecto     3  error de red o respuesta inesperada
+  0  sin fugas
+  1  fuga detectada
+  3  error de red, respuesta inesperada, revisión no concluyente (p. ej. 0 tenants
+     revisados) o argumentos no válidos
 Una FUGA tiene prioridad sobre un ERROR al elegir el código.
 
+Tras ${PREDETERMINADOS.fallosSeguidos} fallos de red o timeouts seguidos se da la API por caída y no se
+hacen más peticiones (ERROR, código 3).
 Colores solo en terminal (TTY) y si NO_COLOR no está definida.
 
 Ejemplos:
@@ -158,28 +192,70 @@ export function normalizarApi(texto) {
   return url.origin + ruta;
 }
 
-export function parsearArgumentos(argv) {
-  let valores;
-  try {
-    ({ values: valores } = parseArgs({
-      args: argv,
-      options: {
-        incluir: { type: 'string', multiple: true },
-        solo: { type: 'string', multiple: true },
-        muestras: { type: 'string' },
-        api: { type: 'string' },
-        json: { type: 'boolean', default: false },
-        timeout: { type: 'string' },
-        concurrencia: { type: 'string' },
-        'max-peticiones': { type: 'string' },
-        ayuda: { type: 'boolean', short: 'h', default: false },
-      },
-      strict: true,
-      allowPositionals: false,
-    }));
-  } catch (err) {
-    throw new ErrorUso(`argumentos no válidos: ${err.message}`);
+/** Opciones del CLI: 'texto' lleva valor; 'bandera' no. */
+const OPCIONES_CLI = Object.freeze({
+  incluir: { tipo: 'texto', multiple: true },
+  solo: { tipo: 'texto', multiple: true },
+  muestras: { tipo: 'texto' },
+  api: { tipo: 'texto' },
+  json: { tipo: 'bandera' },
+  timeout: { tipo: 'texto' },
+  concurrencia: { tipo: 'texto' },
+  'max-peticiones': { tipo: 'texto' },
+  ayuda: { tipo: 'bandera' },
+});
+const OPCIONES_CORTAS = Object.freeze({ h: 'ayuda' });
+
+/**
+ * Lee argv sin dependencias (util.parseArgs no existe en Node 18.0–18.2 y su
+ * import estático rompería el script antes de poder dar un código de salida).
+ * Acepta "--opcion valor" y "--opcion=valor"; --incluir y --solo se pueden repetir;
+ * en las demás gana la última aparición. Lanza ErrorUso ante opciones desconocidas,
+ * posicionales o una opción de texto sin valor.
+ */
+export function leerArgv(argv) {
+  const valores = {};
+  for (let i = 0; i < argv.length; i++) {
+    const arg = String(argv[i]);
+    let nombre;
+    let valor;
+    if (arg.startsWith('--') && arg.length > 2) {
+      const igual = arg.indexOf('=');
+      nombre = igual === -1 ? arg.slice(2) : arg.slice(2, igual);
+      valor = igual === -1 ? undefined : arg.slice(igual + 1);
+    } else if (/^-[A-Za-z]$/.test(arg)) {
+      nombre = OPCIONES_CORTAS[arg[1]];
+      if (!nombre) throw new ErrorUso(`opción desconocida: ${arg}`);
+    } else {
+      throw new ErrorUso(`argumento inesperado: "${arg}" (las opciones empiezan con --)`);
+    }
+    const def = Object.prototype.hasOwnProperty.call(OPCIONES_CLI, nombre) ? OPCIONES_CLI[nombre] : null;
+    if (!def) throw new ErrorUso(`opción desconocida: --${nombre}`);
+    if (def.tipo === 'bandera') {
+      if (valor !== undefined) throw new ErrorUso(`--${nombre} no lleva valor`);
+      valores[nombre] = true;
+      continue;
+    }
+    if (valor === undefined) {
+      const siguiente = argv[i + 1];
+      if (siguiente === undefined || String(siguiente).startsWith('-')) {
+        throw new ErrorUso(`--${nombre} necesita un valor (para un valor que empiece con "-" usa --${nombre}=valor)`);
+      }
+      valor = String(siguiente);
+      i++;
+    }
+    if (def.multiple) {
+      if (!valores[nombre]) valores[nombre] = [];
+      valores[nombre].push(valor);
+    } else {
+      valores[nombre] = valor;
+    }
   }
+  return valores;
+}
+
+export function parsearArgumentos(argv) {
+  const valores = leerArgv(argv);
   if (valores.ayuda) return { ayuda: true };
   const solo = valores.solo ? listaDeSlugs(valores.solo, 'solo') : null;
   if (solo && solo.length === 0) throw new ErrorUso('--solo necesita al menos un slug');
@@ -189,7 +265,7 @@ export function parsearArgumentos(argv) {
     incluir: listaDeSlugs(valores.incluir ?? [], 'incluir'),
     solo,
     muestras: enteroEnRango(valores.muestras, 'muestras', 0, 50, PREDETERMINADOS.muestras),
-    json: valores.json,
+    json: Boolean(valores.json),
     timeout: enteroEnRango(valores.timeout, 'timeout', 1, 600000, PREDETERMINADOS.timeout),
     concurrencia: enteroEnRango(valores.concurrencia, 'concurrencia', 1, 10, PREDETERMINADOS.concurrencia),
     maxPeticiones: enteroEnRango(valores['max-peticiones'], 'max-peticiones', 1, 100000, PREDETERMINADOS.maxPeticiones),
@@ -204,21 +280,43 @@ export const esObjeto = (x) => x !== null && typeof x === 'object' && !Array.isA
 
 const esVacio = (v) => v === undefined || v === null || v === '';
 
-/** Máximo de peticiones que hará la corrida (sin contar reintentos). */
-export function estimarPeticiones({ tenants, muestras, resoluciones = 0 }) {
-  return 1 + resoluciones + tenants * COLECCIONES.length + tenants * DETALLES.length * muestras * 2;
+/**
+ * Máximo de peticiones que hará la corrida (sin contar reintentos).
+ * `otrosExternos`: tenants que NO están en la selección y podrían usarse como "otro"
+ * del detalle cruzado; de cada uno (hasta MAX_OTROS_EXTERNOS) se cargan las listas
+ * de las colecciones con detalle.
+ */
+export function estimarPeticiones({ tenants, muestras, resoluciones = 0, otrosExternos = 0 }) {
+  const externos = muestras > 0 && tenants > 0 ? Math.min(Math.max(otrosExternos, 0), MAX_OTROS_EXTERNOS) : 0;
+  return 1 + resoluciones + tenants * COLECCIONES.length + tenants * DETALLES.length * muestras * 2 +
+    externos * DETALLES.length;
 }
 
 /**
- * Tenant "otro" para el detalle cruzado: el siguiente de la selección (circular).
- * Si la selección tiene un solo tenant, se usa el siguiente de la lista completa.
+ * Candidatos a tenant "otro" para el detalle cruzado de `slug`, en orden de
+ * preferencia (determinista): primero los demás de la selección, en orden circular
+ * desde `slug`; después los de la lista completa que no están en la selección,
+ * también en orden circular. Los inactivos (activo === false) se excluyen.
  */
+export function candidatosOtro(seleccion, todos, slug) {
+  const circular = (base) => {
+    const i = base.findIndex((t) => t.slug === slug);
+    const salida = [];
+    for (let k = 1; k <= base.length; k++) {
+      const t = base[((i === -1 ? -1 : i) + k + base.length) % base.length];
+      if (t && t.slug !== slug) salida.push(t);
+    }
+    return salida;
+  };
+  const enSeleccion = new Set(seleccion.map((t) => t.slug));
+  const deSeleccion = circular(seleccion);
+  const externos = circular(todos).filter((t) => !enSeleccion.has(t.slug));
+  return [...deSeleccion, ...externos].filter((t) => t.activo !== false);
+}
+
+/** Primer candidato de `candidatosOtro` (sin mirar si sus listas responden). */
 export function elegirOtro(seleccion, todos, slug) {
-  const base = seleccion.length >= 2 ? seleccion : todos;
-  if (base.length < 2) return null;
-  const i = base.findIndex((t) => t.slug === slug);
-  if (i === -1) return null;
-  return base[(i + 1) % base.length];
+  return candidatosOtro(seleccion, todos, slug)[0] ?? null;
 }
 
 /** Primeros n elementos con clave utilizable (string o número no vacío), sin repetir clave. */
@@ -330,6 +428,27 @@ export function es404NoConcluyente(cuerpo) {
   return /^Ruta no encontrada/i.test(msg) || /^Municipio\b.*no encontrado/i.test(msg);
 }
 
+/**
+ * ¿Es el 404 que la API da cuando el ELEMENTO no existe bajo ese tenant?
+ * Exige cuerpo JSON con `error` igual al mensaje de la colección (MENSAJE_NO_ENCONTRADO);
+ * un 404 HTML de un proxy, `{}` o `{"message":"Not Found"}` no cuentan.
+ */
+export function es404DeElemento(coleccion, r) {
+  if (!r || r.estado !== 404 || r.jsonInvalido || !esObjeto(r.cuerpo) || typeof r.cuerpo.error !== 'string') return false;
+  const esperado = MENSAJE_NO_ENCONTRADO[coleccion];
+  if (!esperado) return false;
+  return r.cuerpo.error.trim().replace(/\.$/, '').toLowerCase() === esperado.toLowerCase();
+}
+
+/** Motivo legible por el que un 404 no demuestra aislamiento. */
+function motivo404(coleccion, r) {
+  if (es404NoConcluyente(r.cuerpo)) return 'la ruta o el municipio no existen';
+  const esperado = MENSAJE_NO_ENCONTRADO[coleccion];
+  const pista = esperado ? `se esperaba {"error":"${esperado}"}` : 'colección sin detalle';
+  if (r.jsonInvalido || r.cuerpo === undefined) return `cuerpo no JSON; ${pista}`;
+  return `mensaje inesperado; ${pista}`;
+}
+
 export function describirRespuesta(r) {
   if (!r) return 'sin respuesta';
   if (r.estado === 0) return r.error ?? 'error de red';
@@ -353,14 +472,21 @@ export function tipoCuerpoDetalle(r) {
 
 const mismoValor = (a, b) => !esVacio(a) && !esVacio(b) && String(a) === String(b);
 
-/** Detalle de un elemento pedido bajo SU tenant: se espera 200 y municipioId propio. */
+/**
+ * Detalle de un elemento pedido bajo SU tenant: se espera 200 y municipioId propio.
+ * `valido` indica si hubo 200 con datos: solo entonces un 404 bajo otro tenant
+ * demuestra aislamiento (si el propio tampoco responde, el 404 cruzado no prueba nada).
+ */
 export function clasificarDetallePropio({ tenant, coleccion, clave, valor, elemento, respuesta, duenoPorId = new Map() }) {
   const r = respuesta;
   const ref = `${tenant.slug}/${coleccion}/${valor}`;
+  const ruta = r.ruta ?? rutaDetalle(tenant.slug, coleccion, valor);
   const base = { tenants: [tenant.slug], coleccion };
-  if (r.estado === 404) {
+  if (r.estado === 404 && es404DeElemento(coleccion, r)) {
+    // La lista lo muestra y el detalle dice que no existe: incoherencia de la API, no fuga.
     return {
       resultado: 'aviso',
+      valido: false,
       hallazgos: [hallazgo('AVISO', {
         ...base,
         mensaje: `${ref}: aparece en la lista pero su detalle respondió ${describirRespuesta(r)}; no se pudo verificar`,
@@ -368,21 +494,28 @@ export function clasificarDetallePropio({ tenant, coleccion, clave, valor, eleme
     };
   }
   if (r.estado !== 200) {
+    const extra = r.estado === 404 ? `; ${motivo404(coleccion, r)}` : '';
     return {
       resultado: 'error',
-      hallazgos: [hallazgo('ERROR', { ...base, mensaje: `GET ${r.ruta ?? ref} → ${describirRespuesta(r)} (se esperaba 200)` })],
+      valido: false,
+      hallazgos: [hallazgo('ERROR', {
+        ...base,
+        mensaje: `GET ${ruta} → ${describirRespuesta(r)} (se esperaba 200: el elemento aparece en la lista de ${tenant.slug}${extra})`,
+      })],
     };
   }
   const tipo = tipoCuerpoDetalle(r);
   if (tipo === 'inesperado') {
     return {
       resultado: 'error',
+      valido: false,
       hallazgos: [hallazgo('ERROR', { ...base, mensaje: `${ref}: el detalle respondió 200 con un cuerpo inesperado` })],
     };
   }
   if (tipo === 'vacio') {
     return {
       resultado: 'aviso',
+      valido: false,
       hallazgos: [hallazgo('AVISO', { ...base, mensaje: `${ref}: el detalle respondió 200 sin datos` })],
     };
   }
@@ -391,6 +524,7 @@ export function clasificarDetallePropio({ tenant, coleccion, clave, valor, eleme
     const dueno = duenoPorId.get(d.municipioId);
     return {
       resultado: 'fuga',
+      valido: true,
       hallazgos: [hallazgo('FUGA', {
         tenants: [tenant.slug, dueno],
         coleccion,
@@ -408,32 +542,34 @@ export function clasificarDetallePropio({ tenant, coleccion, clave, valor, eleme
   } else if (!esVacio(elemento?.id) && !esVacio(d.id) && String(d.id) !== String(elemento.id)) {
     avisos.push(hallazgo('AVISO', { ...base, mensaje: `${ref}: el detalle trae id ${d.id} y la lista ${elemento.id}` }));
   }
-  return { resultado: avisos.length ? 'aviso' : 'ok', hallazgos: avisos };
+  return { resultado: avisos.length ? 'aviso' : 'ok', valido: true, hallazgos: avisos };
 }
 
 /**
- * Detalle de un elemento de `tenant` pedido bajo la ruta de `otro`: se espera 404.
- * `listaOtro` es la lista pública de `otro` para esa colección (o null si no se pudo leer);
- * solo hace falta cuando la respuesta es 200.
+ * Detalle de un elemento de `tenant` pedido bajo la ruta de `otro`: se espera 404
+ * con el JSON de "no encontrado" de la colección ('aislado'). Cualquier otro 404
+ * (ruta o municipio inexistentes, HTML de un proxy, mensaje distinto) es 'aviso'
+ * no concluyente. `listaOtro` es la lista pública de `otro` para esa colección
+ * (o null si no se pudo leer); solo hace falta cuando la respuesta es 200.
+ * Ojo: 'aislado' solo demuestra aislamiento si el detalle propio respondió 200
+ * (eso lo decide ejecutar() con `valido` de clasificarDetallePropio).
  */
 export function clasificarDetalleCruzado({
   tenant, otro, coleccion, clave, valor, elemento, respuesta, listaOtro = null, duenoPorId = new Map(),
 }) {
   const r = respuesta;
-  const ruta = r.ruta ?? `/api/municipios/${otro.slug}/${coleccion}/${valor}`;
+  const ruta = r.ruta ?? rutaDetalle(otro.slug, coleccion, valor);
   const ref = `${tenant.slug}/${coleccion}/${valor}`;
   const base = { tenants: [tenant.slug, otro.slug], coleccion };
   if (r.estado === 404) {
-    if (es404NoConcluyente(r.cuerpo)) {
-      return {
-        resultado: 'aviso',
-        hallazgos: [hallazgo('AVISO', {
-          ...base,
-          mensaje: `GET ${ruta} → ${describirRespuesta(r)}: 404 no concluyente (la ruta o el municipio no existen)`,
-        })],
-      };
-    }
-    return { resultado: 'aislado', hallazgos: [] };
+    if (es404DeElemento(coleccion, r)) return { resultado: 'aislado', hallazgos: [] };
+    return {
+      resultado: 'aviso',
+      hallazgos: [hallazgo('AVISO', {
+        ...base,
+        mensaje: `GET ${ruta} → ${describirRespuesta(r)}: 404 no concluyente (${motivo404(coleccion, r)})`,
+      })],
+    };
   }
   if (r.estado !== 200) {
     return {
@@ -559,7 +695,13 @@ function describirErrorRed(err) {
 
 /**
  * Cliente de solo lectura. `get(ruta)` nunca lanza: devuelve
- * { ruta, estado (0 = sin respuesta), ok, cuerpo, jsonInvalido, error, intentos, ms }.
+ * { ruta, estado (0 = sin respuesta), ok, cuerpo, jsonInvalido, error, intentos, ms, omitida }.
+ *
+ * `omitida: true` = la petición no se hizo (o quedó a medias) porque se alcanzó el
+ * tope (--max-peticiones) o porque el cortacircuitos está abierto: tras
+ * `fallosSeguidos` get() seguidos sin respuesta (error de red o timeout, ya con su
+ * reintento) se da la API por caída y el resto se omite al instante, sin esperar
+ * timeouts. Cualquier respuesta HTTP (incluso 5xx) reinicia la cuenta. 0 lo desactiva.
  */
 export function crearCliente({
   api,
@@ -567,16 +709,28 @@ export function crearCliente({
   concurrencia = PREDETERMINADOS.concurrencia,
   maxPeticiones = Infinity,
   retrasoReintento = PREDETERMINADOS.retrasoReintento,
+  fallosSeguidos = PREDETERMINADOS.fallosSeguidos,
   fetchImpl = globalThis.fetch,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('fetch no disponible: se requiere Node >= 18');
-  const estadisticas = { peticiones: 0, reintentos: 0, agotado: false };
+  const estadisticas = {
+    peticiones: 0,
+    reintentos: 0,
+    agotado: false,
+    cortado: false,
+    fallosSeguidos: 0,
+    omitidas: 0,
+    motivoCorte: null,
+  };
   const limitar = crearLimitador(concurrencia);
 
   async function intento(url) {
+    if (estadisticas.cortado) {
+      return { estado: 0, error: 'omitida: la API dejó de responder (cortacircuitos abierto)', omitida: true };
+    }
     if (estadisticas.peticiones >= maxPeticiones) {
       estadisticas.agotado = true;
-      return { estado: 0, error: `tope de peticiones alcanzado (--max-peticiones ${maxPeticiones})`, agotado: true };
+      return { estado: 0, error: `omitida: tope de peticiones alcanzado (--max-peticiones ${maxPeticiones})`, omitida: true };
     }
     estadisticas.peticiones++;
     const control = new AbortController();
@@ -612,11 +766,26 @@ export function crearCliente({
       const url = api + ruta;
       let r = await intento(url);
       let intentos = 1;
-      if (!r.agotado && (r.estado === 0 || r.estado >= 500)) {
-        estadisticas.reintentos++;
+      if (!r.omitida && (r.estado === 0 || r.estado >= 500)) {
         if (retrasoReintento > 0) await esperar(retrasoReintento);
-        r = await intento(url);
-        intentos = 2;
+        const r2 = await intento(url);
+        // Si el reintento se omite (tope o cortacircuitos), vale el resultado real del primero.
+        if (!r2.omitida) {
+          estadisticas.reintentos++;
+          r = r2;
+          intentos = 2;
+        }
+      }
+      if (r.omitida) {
+        estadisticas.omitidas++;
+      } else if (r.estado === 0) {
+        estadisticas.fallosSeguidos++;
+        if (fallosSeguidos > 0 && estadisticas.fallosSeguidos >= fallosSeguidos && !estadisticas.cortado) {
+          estadisticas.cortado = true;
+          estadisticas.motivoCorte = r.error ?? 'sin respuesta';
+        }
+      } else {
+        estadisticas.fallosSeguidos = 0;
       }
       return {
         ruta,
@@ -627,6 +796,7 @@ export function crearCliente({
         error: r.error ?? null,
         intentos,
         ms: r.ms ?? 0,
+        omitida: Boolean(r.omitida),
       };
     });
   }
@@ -646,6 +816,7 @@ const rutaDetalle = (slug, coleccion, valor) => `${rutaLista(slug, coleccion)}/$
 /**
  * Corre la prueba completa y devuelve el informe (no escribe en consola).
  * Lanza ErrorUso si el presupuesto estimado supera --max-peticiones.
+ * `dependencias`: { fetchImpl, retrasoReintento, fallosSeguidos } (para pruebas).
  */
 export async function ejecutar(opciones, dependencias = {}) {
   const o = {
@@ -659,14 +830,17 @@ export async function ejecutar(opciones, dependencias = {}) {
     ...opciones,
   };
   const inicio = Date.now();
+  const limiteFallos = dependencias.fallosSeguidos ?? PREDETERMINADOS.fallosSeguidos;
   const cliente = crearCliente({
     api: o.api,
     timeout: o.timeout,
     concurrencia: o.concurrencia,
     maxPeticiones: o.maxPeticiones,
     retrasoReintento: dependencias.retrasoReintento ?? PREDETERMINADOS.retrasoReintento,
+    fallosSeguidos: limiteFallos,
     fetchImpl: dependencias.fetchImpl ?? globalThis.fetch,
   });
+  const est = cliente.estadisticas;
   const hallazgos = [];
   const informe = {
     herramienta: 'aislamiento-publico',
@@ -692,8 +866,22 @@ export async function ejecutar(opciones, dependencias = {}) {
     duracionMs: null,
   };
   let estimado = null;
+  /** Tenants con alguna petición omitida (tope o cortacircuitos): su revisión quedó incompleta. */
+  const incompletos = new Set();
+  const incompleta = () => est.cortado || est.agotado;
 
   const cerrar = () => {
+    if (incompleta()) {
+      const motivo = est.cortado
+        ? `la API dejó de responder (${limiteFallos} peticiones seguidas sin respuesta; última: ${est.motivoCorte}) ` +
+          'y se cortaron las demás para no esperar sus timeouts'
+        : `se alcanzó el tope de ${o.maxPeticiones} peticiones (--max-peticiones)`;
+      hallazgos.push(hallazgo('ERROR', {
+        tenants: [...incompletos],
+        mensaje: `Revisión incompleta: ${motivo}; ${est.omitidas} petición(es) omitida(s)`,
+        datos: { cortacircuitos: est.cortado, topeAlcanzado: est.agotado, omitidas: est.omitidas },
+      }));
+    }
     const cuenta = contarPorTipo(hallazgos);
     for (const t of informe.tenants) {
       const propios = hallazgos.filter((h) => h.tenants.includes(t.slug));
@@ -705,8 +893,10 @@ export async function ejecutar(opciones, dependencias = {}) {
       t.estado = c.FUGA ? 'FUGA' : c.ERROR ? 'ERROR' : 'OK';
     }
     informe.peticiones = {
-      total: cliente.estadisticas.peticiones,
-      reintentos: cliente.estadisticas.reintentos,
+      total: est.peticiones,
+      reintentos: est.reintentos,
+      omitidas: est.omitidas,
+      cortacircuitos: est.cortado,
       estimadoMaximo: estimado,
       maximoPermitido: o.maxPeticiones,
     };
@@ -735,6 +925,13 @@ export async function ejecutar(opciones, dependencias = {}) {
     return cerrar();
   }
   informe.tenantsListados = rLista.cuerpo.length;
+  const listaVacia = rLista.cuerpo.length === 0;
+  if (listaVacia) {
+    // Con 14 tenants dados de alta, un [] es una falla (caché, base de datos o despliegue), no "sin fugas".
+    hallazgos.push(hallazgo('ERROR', {
+      mensaje: 'GET /api/municipios respondió una lista vacía: la API no expone ningún tenant (¿caché o base de datos vacía?)',
+    }));
+  }
   const todos = [];
   for (const m of rLista.cuerpo) {
     if (!esObjeto(m) || typeof m.id !== 'string' || !m.id || typeof m.slug !== 'string' || !m.slug) {
@@ -754,6 +951,8 @@ export async function ejecutar(opciones, dependencias = {}) {
 
   // 1b. --incluir -------------------------------------------------------------
   const omitidos = new Set();
+  /** Slugs de --incluir que respondieron 404: aún no dados de alta. */
+  const pendientes = new Set();
   const aResolver = o.incluir.filter((slug) => !todos.some((t) => t.slug === slug));
   for (const slug of o.incluir) {
     if (!aResolver.includes(slug)) {
@@ -762,8 +961,12 @@ export async function ejecutar(opciones, dependencias = {}) {
   }
   const resoluciones = await Promise.all(aResolver.map(async (slug) => ({ slug, r: await cliente.get(rutaMunicipio(slug)) })));
   for (const { slug, r } of resoluciones) {
-    if (r.estado === 404) {
+    if (r.omitida) {
       omitidos.add(slug);
+      informe.omitidos.push({ slug, motivo: 'petición omitida' });
+    } else if (r.estado === 404) {
+      omitidos.add(slug);
+      pendientes.add(slug);
       informe.omitidos.push({ slug, motivo: 'aún no dado de alta' });
       hallazgos.push(hallazgo('AVISO', {
         tenants: [slug],
@@ -815,13 +1018,27 @@ export async function ejecutar(opciones, dependencias = {}) {
     }
   }
   if (seleccion.length === 0) {
-    hallazgos.push(hallazgo('AVISO', { mensaje: 'No hay tenants que revisar' }));
     estimado = estimarPeticiones({ tenants: 0, muestras: o.muestras, resoluciones: aResolver.length });
+    // Revisar 0 tenants no demuestra nada: es ERROR, salvo que todo lo pedido con --solo
+    // esté pendiente de alta (--incluir con 404), que es el caso "aún no dado de alta".
+    const soloPendientes = Boolean(o.solo) && o.solo.every((slug) => pendientes.has(slug));
+    if (soloPendientes) {
+      hallazgos.push(hallazgo('AVISO', { mensaje: 'No hay tenants que revisar: los de --solo aún no están dados de alta' }));
+    } else if (!listaVacia) {
+      hallazgos.push(hallazgo('ERROR', {
+        mensaje: 'No hay tenants que revisar: ' + (o.solo
+          ? `ningún slug de --solo (${o.solo.join(', ')}) está entre los tenants (el slug distingue mayúsculas)`
+          : 'ningún elemento de /api/municipios trae id y slug válidos'),
+      }));
+    }
     return cerrar();
   }
 
   // 5. Presupuesto ------------------------------------------------------------
-  estimado = estimarPeticiones({ tenants: seleccion.length, muestras: o.muestras, resoluciones: aResolver.length });
+  const otrosExternos = todos.filter((t) => !seleccion.includes(t) && t.activo !== false).length;
+  estimado = estimarPeticiones({
+    tenants: seleccion.length, muestras: o.muestras, resoluciones: aResolver.length, otrosExternos,
+  });
   if (estimado > o.maxPeticiones) {
     throw new ErrorUso(
       `el máximo estimado de peticiones (${estimado}) supera --max-peticiones ${o.maxPeticiones}; ` +
@@ -839,7 +1056,7 @@ export async function ejecutar(opciones, dependencias = {}) {
       origen: t.origen,
       otro: null,
       colecciones: Object.fromEntries(COLECCIONES.map((c) => [c, null])),
-      detalle: { propios: 0, propiosOk: 0, cruzados: 0, aislados: 0, infos: 0 },
+      detalle: { propios: 0, propiosOk: 0, cruzados: 0, aislados: 0, infos: 0, noConcluyentes: 0 },
       fugas: 0,
       errores: 0,
       avisos: 0,
@@ -857,6 +1074,10 @@ export async function ejecutar(opciones, dependencias = {}) {
   );
   for (const { t, coleccion, r } of respuestasListas) {
     listas.get(t.slug)[coleccion] = null;
+    if (r.omitida) {
+      incompletos.add(t.slug);
+      continue;
+    }
     if (r.estado === 200 && Array.isArray(r.cuerpo)) {
       listas.get(t.slug)[coleccion] = r.cuerpo;
       resumenPorSlug.get(t.slug).colecciones[coleccion] = r.cuerpo.length;
@@ -876,64 +1097,161 @@ export async function ejecutar(opciones, dependencias = {}) {
   hallazgos.push(...detectarIdsRepetidos(seleccion.map((t) => ({ slug: t.slug, listas: listas.get(t.slug) }))));
 
   // 4. Detalle cruzado --------------------------------------------------------
-  const cacheListas = new Map();
-  const listaPerezosa = (tenant, coleccion) => {
-    const cargada = listas.get(tenant.slug)?.[coleccion];
-    if (cargada !== undefined) return Promise.resolve(cargada);
-    const clave = `${tenant.slug}/${coleccion}`;
-    if (!cacheListas.has(clave)) {
-      cacheListas.set(clave, cliente.get(rutaLista(tenant.slug, coleccion))
-        .then((r) => (r.estado === 200 && Array.isArray(r.cuerpo) ? r.cuerpo : null)));
-    }
-    return cacheListas.get(clave);
-  };
-
   const tareas = [];
   if (o.muestras > 0) {
-    let avisadoSinOtro = false;
     for (const t of seleccion) {
-      const otro = elegirOtro(seleccion, todos, t.slug);
-      resumenPorSlug.get(t.slug).otro = otro?.slug ?? null;
-      if (!otro && !avisadoSinOtro) {
-        avisadoSinOtro = true;
-        hallazgos.push(hallazgo('AVISO', { mensaje: 'Solo hay un tenant disponible: no se puede probar el detalle cruzado' }));
-      }
       for (const { coleccion, clave } of DETALLES) {
         for (const elemento of muestrear(listas.get(t.slug)[coleccion], clave, o.muestras)) {
-          tareas.push({ t, otro, coleccion, clave, valor: String(elemento[clave]), elemento });
+          tareas.push({ t, coleccion, clave, valor: String(elemento[clave]), elemento });
         }
       }
     }
   }
+
+  // 4a. Tenant de contraste ("otro"): el siguiente (circular) que esté activo y cuyas
+  // listas de noticias/atractivos/funcionarios respondan; si no hay en la selección,
+  // se prueban hasta MAX_OTROS_EXTERNOS de la lista completa (sus listas se cargan
+  // aquí y ya cuentan en el estimado).
+  const enSeleccion = new Set(seleccion.map((t) => t.slug));
+  const listasDetalleOk = (slug) => DETALLES.every(({ coleccion }) => Array.isArray(listas.get(slug)?.[coleccion]));
+  const externos = new Map();
+  const cargarExterno = (t) => {
+    if (!externos.has(t.slug)) {
+      if (externos.size >= MAX_OTROS_EXTERNOS) return Promise.resolve(false);
+      externos.set(t.slug, (async () => {
+        const rs = await Promise.all(DETALLES.map(async ({ coleccion }) => ({ coleccion, r: await cliente.get(rutaLista(t.slug, coleccion)) })));
+        const propias = {};
+        const fallidas = [];
+        for (const { coleccion, r } of rs) {
+          const ok = r.estado === 200 && Array.isArray(r.cuerpo);
+          propias[coleccion] = ok ? r.cuerpo : null;
+          if (!ok && !r.omitida) fallidas.push(`GET ${r.ruta} → ${describirRespuesta(r)}`);
+        }
+        listas.set(t.slug, propias);
+        if (fallidas.length) {
+          hallazgos.push(hallazgo('AVISO', {
+            tenants: [t.slug],
+            mensaje: `${t.slug} no sirve como tenant de contraste: ${fallidas.join('; ')}`,
+          }));
+        }
+        return listasDetalleOk(t.slug);
+      })());
+    }
+    return externos.get(t.slug);
+  };
+
+  const otroPorSlug = new Map();
+  let avisadoUnico = false;
+  for (const t of seleccion.filter((x) => tareas.some((tarea) => tarea.t === x))) {
+    let otro = null;
+    for (const candidato of candidatosOtro(seleccion, todos, t.slug)) {
+      if (enSeleccion.has(candidato.slug)) {
+        if (listasDetalleOk(candidato.slug)) {
+          otro = candidato;
+          break;
+        }
+        continue;
+      }
+      if (await cargarExterno(candidato)) {
+        otro = candidato;
+        break;
+      }
+    }
+    resumenPorSlug.get(t.slug).otro = otro?.slug ?? null;
+    if (otro) {
+      otroPorSlug.set(t.slug, otro);
+    } else if (incompleta()) {
+      incompletos.add(t.slug);
+    } else if (todos.length < 2) {
+      if (!avisadoUnico) {
+        avisadoUnico = true;
+        hallazgos.push(hallazgo('AVISO', { mensaje: 'Solo hay un tenant en la API: no se puede probar el detalle cruzado' }));
+      }
+    } else {
+      hallazgos.push(hallazgo('ERROR', {
+        tenants: [t.slug],
+        mensaje: `${t.slug}: no hay tenant de contraste para el detalle cruzado (los demás están inactivos o sus ` +
+          `listas no respondieron; se probaron hasta ${MAX_OTROS_EXTERNOS} fuera de la selección); no se probó el aislamiento del detalle`,
+      }));
+    }
+  }
+
+  // 4b. Propio y cruzado ------------------------------------------------------
   const resultados = await Promise.all(tareas.map(async (tarea) => {
-    const { t, otro, coleccion, valor } = tarea;
+    const { t, coleccion, valor } = tarea;
+    const otro = otroPorSlug.get(t.slug) ?? null;
     const [propia, cruzada] = await Promise.all([
       cliente.get(rutaDetalle(t.slug, coleccion, valor)),
       otro ? cliente.get(rutaDetalle(otro.slug, coleccion, valor)) : Promise.resolve(null),
     ]);
-    const listaOtro = cruzada && cruzada.estado === 200 ? await listaPerezosa(otro, coleccion) : null;
-    return { tarea, propia, cruzada, listaOtro };
+    return { tarea, otro, propia, cruzada };
   }));
-  for (const { tarea, propia, cruzada, listaOtro } of resultados) {
-    const { t, otro, coleccion, clave, valor, elemento } = tarea;
+  /** slug → colección → { cruzados, concluyentes } */
+  const evidencia = new Map();
+  const anotar = (slug, coleccion, concluyente) => {
+    if (!evidencia.has(slug)) evidencia.set(slug, {});
+    const e = evidencia.get(slug);
+    if (!e[coleccion]) e[coleccion] = { cruzados: 0, concluyentes: 0 };
+    e[coleccion].cruzados++;
+    if (concluyente) e[coleccion].concluyentes++;
+  };
+  for (const { tarea, otro, propia, cruzada } of resultados) {
+    const { t, coleccion, clave, valor, elemento } = tarea;
     const det = resumenPorSlug.get(t.slug).detalle;
-    const p = clasificarDetallePropio({ tenant: t, coleccion, clave, valor, elemento, respuesta: propia, duenoPorId });
-    det.propios++;
-    if (p.resultado === 'ok') det.propiosOk++;
-    hallazgos.push(...p.hallazgos);
+    let p = null;
+    if (propia.omitida) {
+      incompletos.add(t.slug);
+    } else {
+      p = clasificarDetallePropio({ tenant: t, coleccion, clave, valor, elemento, respuesta: propia, duenoPorId });
+      det.propios++;
+      if (p.resultado === 'ok') det.propiosOk++;
+      hallazgos.push(...p.hallazgos);
+    }
     if (!cruzada) continue;
-    const c = clasificarDetalleCruzado({ tenant: t, otro, coleccion, clave, valor, elemento, respuesta: cruzada, listaOtro, duenoPorId });
+    if (cruzada.omitida) {
+      incompletos.add(t.slug);
+      continue;
+    }
+    const c = clasificarDetalleCruzado({
+      tenant: t, otro, coleccion, clave, valor, elemento, respuesta: cruzada,
+      listaOtro: listas.get(otro.slug)?.[coleccion] ?? null, duenoPorId,
+    });
     det.cruzados++;
-    if (c.resultado === 'aislado') det.aislados++;
-    if (c.resultado === 'info') det.infos++;
     hallazgos.push(...c.hallazgos);
+    if (c.resultado === 'aislado' && p?.valido) {
+      // 404 "no encontrado" bajo el otro Y 200 con datos bajo el propio: aislamiento demostrado.
+      det.aislados++;
+      anotar(t.slug, coleccion, true);
+    } else if (c.resultado === 'info') {
+      det.infos++;
+      anotar(t.slug, coleccion, true);
+    } else if (c.resultado === 'aislado' || c.resultado === 'aviso') {
+      // Un 404 cruzado sin 200 propio (o un 404/200 raro) no demuestra nada.
+      det.noConcluyentes++;
+      anotar(t.slug, coleccion, false);
+    } else {
+      anotar(t.slug, coleccion, false);
+    }
   }
 
-  if (cliente.estadisticas.agotado) {
-    hallazgos.push(hallazgo('ERROR', {
-      mensaje: `Se alcanzó el tope de ${o.maxPeticiones} peticiones; la revisión quedó incompleta`,
-    }));
+  // 4c. Colecciones muestreadas sin ninguna evidencia de aislamiento → ERROR.
+  // (Si la corrida quedó incompleta, el ERROR de "revisión incompleta" ya lo cubre.)
+  if (!incompleta()) {
+    for (const t of seleccion) {
+      const otro = otroPorSlug.get(t.slug);
+      const e = evidencia.get(t.slug);
+      if (!otro || !e) continue;
+      const sinEvidencia = DETALLES.map((d) => d.coleccion).filter((c) => e[c] && e[c].concluyentes === 0);
+      if (!sinEvidencia.length) continue;
+      hallazgos.push(hallazgo('ERROR', {
+        tenants: [t.slug],
+        mensaje: `${t.slug}: el detalle cruzado bajo ${otro.slug} no fue concluyente en ${sinEvidencia.join(', ')} ` +
+          `(ningún elemento dio 200 bajo ${t.slug} y 404 "… no encontrado" bajo ${otro.slug}); no se demostró el aislamiento`,
+        datos: { otro: otro.slug, colecciones: sinEvidencia },
+      }));
+    }
   }
+
   return cerrar();
 }
 
@@ -978,8 +1296,10 @@ export function formatearTexto(informe, { color = false } = {}) {
         l.push('         detalle: sin elementos que muestrear');
       } else {
         const cruz = t.otro
-          ? `cruzado bajo ${t.otro}: ${d.aislados}/${d.cruzados} con 404` + (d.infos ? ` · ${d.infos} coincidencia(s) legítima(s)` : '')
-          : 'cruzado: sin otro tenant';
+          ? `cruzado bajo ${t.otro}: ${d.aislados}/${d.cruzados} con 404 concluyente` +
+            (d.infos ? ` · ${d.infos} coincidencia(s) legítima(s)` : '') +
+            (d.noConcluyentes ? ` · ${d.noConcluyentes} no concluyente(s)` : '')
+          : 'cruzado: sin tenant de contraste';
         l.push(`         detalle: propio ${d.propiosOk}/${d.propios} con 200 · ${cruz}`);
       }
       const partes = [];
@@ -1007,6 +1327,7 @@ export function formatearTexto(informe, { color = false } = {}) {
     (r.tenantsConFuga.length ? ` · con fuga: ${r.tenantsConFuga.join(', ')}` : ''));
   l.push(`  Hallazgos: ${r.fugas} FUGA · ${r.errores} ERROR · ${r.avisos} AVISO · ${r.infos} INFO`);
   l.push(`  Peticiones GET: ${pet.total} (reintentos: ${pet.reintentos}` +
+    (pet.omitidas ? ` · omitidas: ${pet.omitidas}${pet.cortacircuitos ? ' por cortacircuitos' : ''}` : '') +
     (pet.estimadoMaximo !== null ? ` · máximo estimado: ${pet.estimadoMaximo}` : '') +
     ` · tope: ${pet.maximoPermitido}) · ${(informe.duracionMs / 1000).toFixed(1)} s`);
   const color_ = informe.codigo === CODIGOS.SIN_FUGAS ? c.verde : c.rojo;
@@ -1030,6 +1351,10 @@ export async function main(argv = process.argv.slice(2)) {
   if (opciones.ayuda) {
     process.stdout.write(AYUDA);
     return CODIGOS.SIN_FUGAS;
+  }
+  if (typeof globalThis.fetch !== 'function') {
+    process.stderr.write('Error: este Node no tiene fetch global; se requiere Node >= 18.\n');
+    return CODIGOS.ERROR;
   }
   let informe;
   try {

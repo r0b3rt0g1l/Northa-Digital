@@ -11,14 +11,20 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import fs from 'node:fs';
+
 import {
   COLECCIONES,
   CODIGOS,
+  MAX_OTROS_EXTERNOS,
   parsearArgumentos,
+  leerArgv,
   normalizarApi,
   listaDeSlugs,
   estimarPeticiones,
   elegirOtro,
+  candidatosOtro,
+  es404DeElemento,
   muestrear,
   revisarMunicipioIds,
   detectarIdsRepetidos,
@@ -431,7 +437,7 @@ describe('ejecutar() en proceso', () => {
     }
   });
 
-  test('404 "Ruta no encontrada" en el detalle cruzado no cuenta como aislamiento', async () => {
+  test('404 "Ruta no encontrada" en el detalle: no cuenta como aislamiento y el propio es ERROR → código 3', async () => {
     const datos = datosBase();
     const rara = await iniciarApi({
       tenants: datos,
@@ -446,12 +452,26 @@ describe('ejecutar() en proceso', () => {
     });
     try {
       const informe = await ejecutar(opts({ api: rara.url, solo: ['alfa', 'beta'], muestras: 1 }), { retrasoReintento: 0 });
-      assert.equal(informe.codigo, 0);
+      assert.equal(informe.codigo, CODIGOS.ERROR);
+      assert.equal(deTipo(informe, 'FUGA').length, 0);
+      // alfa-atractivo-1 bajo beta: 404 no concluyente (AVISO).
       const avisos = deTipo(informe, 'AVISO');
-      // alfa-atractivo-1 bajo beta (no concluyente) + beta-atractivo-1 bajo beta (propio 404)
-      assert.equal(avisos.length, 2, JSON.stringify(avisos, null, 2));
-      assert.ok(avisos.some((a) => /no concluyente/.test(a.mensaje)));
-      assert.equal(informe.tenants[0].detalle.aislados, 2);
+      assert.equal(avisos.length, 1, JSON.stringify(avisos, null, 2));
+      assert.match(avisos[0].mensaje, /beta\/atractivos\/alfa-atractivo-1.*404 no concluyente \(la ruta o el municipio no existen\)/);
+      const errores = deTipo(informe, 'ERROR').map((h) => h.mensaje);
+      assert.equal(errores.length, 3, JSON.stringify(errores, null, 2));
+      // beta-atractivo-1 bajo beta (su propio tenant) debía dar 200.
+      assert.ok(errores.some((m) => /GET \/api\/municipios\/beta\/atractivos\/beta-atractivo-1 → HTTP 404 "Ruta no encontrada" \(se esperaba 200/.test(m)));
+      // Ninguna de las dos colecciones de atractivos quedó demostrada.
+      assert.ok(errores.some((m) => /^alfa: el detalle cruzado bajo beta no fue concluyente en atractivos/.test(m)));
+      assert.ok(errores.some((m) => /^beta: el detalle cruzado bajo alfa no fue concluyente en atractivos/.test(m)));
+      const [alfa, beta] = informe.tenants;
+      assert.equal(alfa.detalle.aislados, 2);
+      assert.equal(alfa.detalle.noConcluyentes, 1);
+      // El 404 de beta-atractivo-1 bajo alfa es "Atractivo no encontrado", pero sin 200 propio no prueba nada.
+      assert.equal(beta.detalle.aislados, 2);
+      assert.equal(beta.detalle.noConcluyentes, 1);
+      assert.equal(beta.detalle.propiosOk, 2);
     } finally {
       await rara.cerrar();
     }
@@ -515,6 +535,272 @@ describe('ejecutar() en proceso', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Revisión adversarial: detalle no verificable, 0 tenants, 404 raros,
+// presupuesto, tenant de contraste y cortacircuitos
+// ---------------------------------------------------------------------------
+
+describe('la prueba no se da por buena si no demostró nada', () => {
+  const json = (res, estado, cuerpo) => {
+    res.writeHead(estado, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(cuerpo));
+    return true;
+  };
+  const partes = (url) => url.pathname.split('/').filter(Boolean);
+  const opts = (api, extra = {}) => ({
+    api, muestras: 2, concurrencia: 3, timeout: 5000, maxPeticiones: 500, incluir: [], solo: null, ...extra,
+  });
+
+  test('detalle propio siempre 404 "… no encontrado": el 404 cruzado no cuenta → código 3', async () => {
+    const api = await iniciarApi({
+      tenants: datosBase(),
+      responder: (req, res, url) => (partes(url).length === 5 ? json(res, 404, { error: NO_ENCONTRADO[partes(url)[3]] }) : false),
+    });
+    try {
+      const { codigo, informe } = await correrJson(['--api', api.url, '--muestras', '2']);
+      assert.equal(codigo, 3);
+      assert.equal(informe.resultado, 'ERROR');
+      for (const t of informe.tenants) {
+        assert.equal(t.detalle.propiosOk, 0);
+        assert.equal(t.detalle.aislados, 0, `${t.slug}: sin 200 propio no hay aislamiento demostrado`);
+        assert.equal(t.detalle.noConcluyentes, 6);
+        assert.equal(t.estado, 'ERROR');
+      }
+      const errores = deTipo(informe, 'ERROR');
+      assert.equal(errores.length, 3, JSON.stringify(errores, null, 2));
+      assert.ok(errores.every((e) => /no fue concluyente en noticias, atractivos, funcionarios/.test(e.mensaje)));
+      // Cada propio con 404 "no encontrado" es una incoherencia lista/detalle (AVISO).
+      assert.equal(deTipo(informe, 'AVISO').length, 18);
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('ruta de detalle inexistente (404 "Ruta no encontrada" también bajo el propio) → ERROR, código 3', async () => {
+    const api = await iniciarApi({
+      tenants: datosBase(),
+      responder: (req, res, url) => (partes(url).length === 5 ? json(res, 404, { error: 'Ruta no encontrada', path: url.pathname }) : false),
+    });
+    try {
+      const informe = await ejecutar(opts(api.url, { muestras: 1 }), { retrasoReintento: 0 });
+      assert.equal(informe.codigo, CODIGOS.ERROR);
+      const errores = deTipo(informe, 'ERROR').map((h) => h.mensaje);
+      // 3 tenants × 3 detalles propios que debían dar 200 + 3 "no concluyente".
+      assert.equal(errores.filter((m) => /se esperaba 200/.test(m)).length, 9);
+      assert.equal(errores.filter((m) => /no fue concluyente/.test(m)).length, 3);
+      assert.equal(deTipo(informe, 'AVISO').filter((h) => /404 no concluyente/.test(h.mensaje)).length, 9);
+      assert.ok(informe.tenants.every((t) => t.detalle.aislados === 0 && t.estado === 'ERROR'));
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('404 cruzado sin el JSON de "no encontrado" (HTML de proxy, {}, {"message"}) → no concluyente, código 3', async () => {
+    const datos = datosBase();
+    const idsAlfa = new Set(Object.values(datos[0].colecciones).flat().map((e) => e.id));
+    const raros = {
+      noticias: (res) => { res.writeHead(404, { 'content-type': 'text/html' }); res.end('<html><body>404 Not Found</body></html>'); return true; },
+      atractivos: (res) => json(res, 404, {}),
+      funcionarios: (res) => json(res, 404, { message: 'Not Found' }),
+    };
+    const api = await iniciarApi({
+      tenants: datos,
+      responder: (req, res, url) => {
+        const p = partes(url);
+        const deAlfa = p.length === 5 && (p[4].startsWith('alfa-') || idsAlfa.has(p[4]));
+        return p[2] === 'beta' && deAlfa ? raros[p[3]](res) : false;
+      },
+    });
+    try {
+      const informe = await ejecutar(opts(api.url, { solo: ['alfa', 'beta'], muestras: 1 }), { retrasoReintento: 0 });
+      assert.equal(informe.codigo, CODIGOS.ERROR);
+      const [alfa, beta] = informe.tenants;
+      assert.equal(alfa.detalle.propiosOk, 3);
+      assert.equal(alfa.detalle.aislados, 0);
+      assert.equal(alfa.detalle.noConcluyentes, 3);
+      assert.equal(beta.detalle.aislados, 3);
+      assert.equal(beta.estado, 'OK');
+      const avisos = deTipo(informe, 'AVISO').map((h) => h.mensaje);
+      assert.equal(avisos.length, 3, JSON.stringify(avisos, null, 2));
+      assert.ok(avisos.some((m) => /noticias\/alfa-noticia-1.*cuerpo no JSON; se esperaba \{"error":"Noticia no encontrada"\}/.test(m)));
+      assert.ok(avisos.some((m) => /atractivos\/alfa-atractivo-1.*mensaje inesperado; se esperaba \{"error":"Atractivo no encontrado"\}/.test(m)));
+      assert.ok(avisos.some((m) => /funcionarios\/.*mensaje inesperado; se esperaba \{"error":"Funcionario no encontrado"\}/.test(m)));
+      const errores = deTipo(informe, 'ERROR');
+      assert.equal(errores.length, 1);
+      assert.match(errores[0].mensaje, /^alfa: el detalle cruzado bajo beta no fue concluyente en noticias, atractivos, funcionarios/);
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('/api/municipios responde [] → ERROR y código 3', async () => {
+    const api = await iniciarApi({ tenants: [] });
+    try {
+      const { codigo, informe } = await correrJson(['--api', api.url]);
+      assert.equal(codigo, 3);
+      assert.equal(informe.resumen.tenantsRevisados, 0);
+      const errores = deTipo(informe, 'ERROR');
+      assert.equal(errores.length, 1);
+      assert.match(errores[0].mensaje, /lista vacía/);
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('--solo solo con slugs que no existen (errata de mayúsculas) → ERROR y código 3', async () => {
+    const api = await iniciarApi({ tenants: datosBase() });
+    try {
+      const r = await correr(['--api', api.url, '--solo', 'Alfa,Beta']);
+      assert.equal(r.codigo, 3);
+      assert.match(r.stdout, /ERROR\s+No hay tenants que revisar: ningún slug de --solo \(Alfa, Beta\)/);
+      assert.match(r.stdout, /Resultado: ERROR \(código 3\)/);
+      assert.equal(api.registro.peticiones.length, 1);
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('--solo solo de tenants pendientes de alta (--incluir con 404) → AVISO y código 0', async () => {
+    const api = await iniciarApi({ tenants: datosBase() });
+    try {
+      const { codigo, informe } = await correrJson(['--api', api.url, '--incluir', 'villapesqueira', '--solo', 'villapesqueira']);
+      assert.equal(codigo, 0);
+      assert.equal(deTipo(informe, 'ERROR').length, 0);
+      const avisos = deTipo(informe, 'AVISO').map((h) => h.mensaje);
+      assert.ok(avisos.some((m) => /villapesqueira: aún no dado de alta/.test(m)));
+      assert.ok(avisos.some((m) => /los de --solo aún no están dados de alta/.test(m)));
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('presupuesto: con un solo tenant, el estimado cubre las listas del "otro" y basta como tope', async () => {
+    const datos = datosBase();
+    for (const [i, t] of datos.slice(0, 2).entries()) {
+      t.colecciones.noticias.unshift({ id: uuid(889000 + i), municipioId: t.municipio.id, slug: 'bienvenida', titulo: 'Bienvenida' });
+    }
+    const api = await iniciarApi({ tenants: datos });
+    try {
+      const libre = await ejecutar(opts(api.url, { solo: ['alfa'], muestras: 1 }), { retrasoReintento: 0 });
+      assert.equal(libre.codigo, 0);
+      assert.equal(libre.peticiones.estimadoMaximo, estimarPeticiones({ tenants: 1, muestras: 1, otrosExternos: 2 }));
+      assert.ok(libre.peticiones.total <= libre.peticiones.estimadoMaximo,
+        `total ${libre.peticiones.total} > estimado ${libre.peticiones.estimadoMaximo}`);
+      const justo = await ejecutar(
+        opts(api.url, { solo: ['alfa'], muestras: 1, maxPeticiones: libre.peticiones.estimadoMaximo }),
+        { retrasoReintento: 0 },
+      );
+      assert.equal(justo.codigo, 0, JSON.stringify(justo.hallazgos, null, 2));
+      assert.equal(deTipo(justo, 'ERROR').length, 0);
+      const infos = deTipo(justo, 'INFO');
+      assert.equal(infos.length, 1);
+      assert.match(infos[0].mensaje, /beta tiene su propio elemento en noticias con slug "bienvenida"/);
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('el "otro" salta al siguiente tenant activo cuyas listas responden → código 0', async () => {
+    const datos = datosBase();
+    datos[1].municipio.activo = false;
+    const api = await iniciarApi({
+      tenants: datos,
+      responder: (req, res, url) => (url.pathname.startsWith('/api/municipios/beta/')
+        ? json(res, 404, { error: "Municipio 'beta' no encontrado" })
+        : false),
+    });
+    try {
+      const { codigo, informe } = await correrJson(['--api', api.url, '--muestras', '2']);
+      assert.equal(codigo, 0, JSON.stringify(deTipo(informe, 'ERROR'), null, 2));
+      const alfa = informe.tenants.find((t) => t.slug === 'alfa');
+      assert.equal(alfa.otro, 'gamma');
+      assert.equal(alfa.detalle.aislados, 6);
+      assert.equal(alfa.detalle.noConcluyentes, 0);
+      assert.equal(informe.tenants.find((t) => t.slug === 'gamma').otro, 'alfa');
+      // Nada se pidió bajo beta salvo sus listas (inactivo: AVISO, no ERROR).
+      assert.ok(!api.registro.peticiones.some((p) => p.url.split('/').length === 6 && p.url.startsWith('/api/municipios/beta/')));
+      assert.equal(deTipo(informe, 'AVISO').length, COLECCIONES.length);
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('sin tenant de contraste utilizable → ERROR y código 3 (no se presenta como OK)', async () => {
+    const datos = datosBase();
+    datos[1].municipio.activo = false;
+    datos[2].municipio.activo = false;
+    const api = await iniciarApi({ tenants: datos });
+    try {
+      const informe = await ejecutar(opts(api.url, { solo: ['alfa'], muestras: 1 }), { retrasoReintento: 0 });
+      assert.equal(informe.codigo, CODIGOS.ERROR);
+      assert.equal(informe.tenants[0].otro, null);
+      assert.equal(informe.tenants[0].estado, 'ERROR');
+      const errores = deTipo(informe, 'ERROR');
+      assert.equal(errores.length, 1);
+      assert.match(errores[0].mensaje, /alfa: no hay tenant de contraste/);
+      assert.match(formatearTexto(informe), /cruzado: sin tenant de contraste/);
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('candidato externo cuyas listas fallan → AVISO y se usa el siguiente', async () => {
+    const api = await iniciarApi({
+      tenants: datosBase(),
+      responder: (req, res, url) => (url.pathname === '/api/municipios/beta/funcionarios'
+        ? json(res, 500, { error: 'Error interno' })
+        : false),
+    });
+    try {
+      const informe = await ejecutar(opts(api.url, { solo: ['alfa'], muestras: 1 }), { retrasoReintento: 0 });
+      assert.equal(informe.codigo, 0, JSON.stringify(informe.hallazgos, null, 2));
+      assert.equal(informe.tenants[0].otro, 'gamma');
+      assert.equal(informe.tenants[0].detalle.aislados, 3);
+      const avisos = deTipo(informe, 'AVISO');
+      assert.equal(avisos.length, 1);
+      assert.match(avisos[0].mensaje, /beta no sirve como tenant de contraste: GET \/api\/municipios\/beta\/funcionarios → HTTP 500/);
+      // El estimado no cuenta reintentos (el 500 de beta/funcionarios se reintentó una vez).
+      assert.equal(informe.peticiones.reintentos, 1);
+      assert.ok(informe.peticiones.total - informe.peticiones.reintentos <= informe.peticiones.estimadoMaximo);
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('un solo tenant en toda la API → AVISO (no hay a quién filtrar) y código 0', async () => {
+    const api = await iniciarApi({ tenants: [fabricarTenant(1, 'alfa', 'Alfa')] });
+    try {
+      const informe = await ejecutar(opts(api.url, { muestras: 1 }), { retrasoReintento: 0 });
+      assert.equal(informe.codigo, 0);
+      assert.match(deTipo(informe, 'AVISO')[0].mensaje, /Solo hay un tenant en la API/);
+    } finally {
+      await api.cerrar();
+    }
+  });
+
+  test('cortacircuitos: con las subrutas colgadas deja de pedir tras 5 fallos seguidos', async () => {
+    const api = await iniciarApi({ tenants: datosBase(), responder: (req, res, url) => partes(url).length >= 4 });
+    try {
+      const t0 = Date.now();
+      const informe = await ejecutar(opts(api.url, { timeout: 150, muestras: 3 }), { retrasoReintento: 0 });
+      const ms = Date.now() - t0;
+      assert.equal(informe.codigo, CODIGOS.ERROR);
+      assert.equal(informe.peticiones.cortacircuitos, true);
+      // 1 lista + como mucho (5 + 2 en vuelo) get() fallidos × 2 intentos; sin cortacircuitos serían 1 + 24 × 2.
+      assert.ok(informe.peticiones.total <= 15, `peticiones: ${informe.peticiones.total}`);
+      assert.ok(informe.peticiones.omitidas >= 24 - 7, `omitidas: ${informe.peticiones.omitidas}`);
+      const incompletas = deTipo(informe, 'ERROR').filter((h) => /^Revisión incompleta: la API dejó de responder/.test(h.mensaje));
+      assert.equal(incompletas.length, 1);
+      assert.ok(deTipo(informe, 'ERROR').length <= 8, 'sin un ERROR por cada petición omitida');
+      assert.ok(informe.tenants.every((t) => t.estado === 'ERROR'));
+      assert.ok(ms < 5000, `tardó ${ms} ms`);
+      assert.match(formatearTexto(informe), /omitidas: \d+ por cortacircuitos/);
+    } finally {
+      await api.cerrar();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Funciones puras
 // ---------------------------------------------------------------------------
 
@@ -564,6 +850,29 @@ describe('parsearArgumentos', () => {
   test('listaDeSlugs respeta mayúsculas', () => {
     assert.deepEqual(listaDeSlugs(['Carbo,carbo']), ['Carbo', 'carbo']);
   });
+
+  test('leerArgv (sin util.parseArgs): --op=valor, repetibles, -h y errores', () => {
+    assert.deepEqual(
+      leerArgv(['--muestras=2', '--solo', 'a', '--solo=b', '-h', '--json', '--api', 'http://x', '--api', 'http://y']),
+      { muestras: '2', solo: ['a', 'b'], ayuda: true, json: true, api: 'http://y' },
+    );
+    const o = parsearArgumentos(['--solo=carbo', '--muestras=0', '--max-peticiones=50']);
+    assert.deepEqual(o.solo, ['carbo']);
+    assert.equal(o.muestras, 0);
+    assert.equal(o.maxPeticiones, 50);
+    assert.throws(() => leerArgv(['--muestras']), /--muestras necesita un valor/);
+    assert.throws(() => leerArgv(['--api', '--json']), /--api necesita un valor/);
+    assert.throws(() => leerArgv(['--json=1']), /--json no lleva valor/);
+    assert.throws(() => leerArgv(['-x']), /opción desconocida: -x/);
+    assert.throws(() => leerArgv(['--']), ErrorUso);
+    assert.throws(() => leerArgv(['--toString']), /opción desconocida/);
+  });
+
+  test('no importa node:util (parseArgs no existe en Node 18.0–18.2 y rompería con código 1)', () => {
+    const fuente = fs.readFileSync(SCRIPT, 'utf8');
+    assert.doesNotMatch(fuente, /from\s+['"](node:)?util['"]/);
+    assert.doesNotMatch(fuente, /import\s*\(\s*['"](node:)?util['"]\s*\)/);
+  });
 });
 
 describe('presupuesto y selección', () => {
@@ -571,6 +880,25 @@ describe('presupuesto y selección', () => {
     const n = estimarPeticiones({ tenants: 15, muestras: 3, resoluciones: 1 });
     assert.equal(n, 1 + 1 + 15 * 8 + 15 * 3 * 3 * 2);
     assert.ok(n <= 400, `estimado: ${n}`);
+  });
+
+  test('el estimado incluye las listas de hasta MAX_OTROS_EXTERNOS tenants de contraste fuera de la selección', () => {
+    assert.equal(estimarPeticiones({ tenants: 1, muestras: 1, otrosExternos: 13 }), 1 + 8 + 3 * 2 + MAX_OTROS_EXTERNOS * 3);
+    assert.equal(estimarPeticiones({ tenants: 1, muestras: 1, otrosExternos: 1 }), 1 + 8 + 3 * 2 + 3);
+    assert.equal(estimarPeticiones({ tenants: 1, muestras: 0, otrosExternos: 13 }), 1 + 8, 'sin detalle no hay contraste');
+    assert.equal(estimarPeticiones({ tenants: 0, muestras: 3, otrosExternos: 13 }), 1);
+    // Humo típico: 3 de 14 tenants con --muestras 3 sigue muy por debajo de ~400.
+    assert.ok(estimarPeticiones({ tenants: 3, muestras: 3, otrosExternos: 11 }) <= 400);
+  });
+
+  test('candidatosOtro: primero la selección (circular), luego el resto; sin inactivos', () => {
+    const todos = [{ slug: 'a' }, { slug: 'b', activo: false }, { slug: 'c' }, { slug: 'd' }, { slug: 'e' }];
+    const [a, , c, d] = todos;
+    const nombres = (xs) => xs.map((x) => x.slug);
+    assert.deepEqual(nombres(candidatosOtro([a, c], todos, 'a')), ['c', 'd', 'e']);
+    assert.deepEqual(nombres(candidatosOtro([a, c], todos, 'c')), ['a', 'd', 'e']);
+    assert.deepEqual(nombres(candidatosOtro([d], todos, 'd')), ['e', 'a', 'c']);
+    assert.deepEqual(nombres(candidatosOtro([a], [a, todos[1]], 'a')), []);
   });
 
   test('elegirOtro es circular y usa la lista completa si solo hay uno seleccionado', () => {
@@ -641,6 +969,32 @@ describe('reglas de aislamiento', () => {
     assert.equal(cruzado({ estado: 200, cuerpo: { id: 'zzz', slug: 'hola' } }, { listaOtro: listaB }).resultado, 'fuga');
   });
 
+  test('clasificarDetalleCruzado: solo el 404 JSON de "no encontrado" de esa colección es aislamiento', () => {
+    assert.equal(cruzado({ estado: 404, cuerpo: { error: 'Noticia no encontrada.' } }).resultado, 'aislado');
+    const noConcluyentes = [
+      [{ estado: 404, cuerpo: undefined, jsonInvalido: true }, /cuerpo no JSON; se esperaba \{"error":"Noticia no encontrada"\}/],
+      [{ estado: 404, cuerpo: undefined }, /cuerpo no JSON/],
+      [{ estado: 404, cuerpo: {} }, /mensaje inesperado/],
+      [{ estado: 404, cuerpo: { message: 'Not Found' } }, /mensaje inesperado/],
+      [{ estado: 404, cuerpo: { error: 'Atractivo no encontrado' } }, /mensaje inesperado/],
+      [{ estado: 404, cuerpo: { error: 'Ruta no encontrada', path: '/x' } }, /la ruta o el municipio no existen/],
+    ];
+    for (const [respuesta, patron] of noConcluyentes) {
+      const r = cruzado(respuesta);
+      assert.equal(r.resultado, 'aviso', JSON.stringify(respuesta));
+      assert.equal(r.hallazgos[0].tipo, 'AVISO');
+      assert.match(r.hallazgos[0].mensaje, patron);
+    }
+  });
+
+  test('es404DeElemento', () => {
+    assert.equal(es404DeElemento('funcionarios', { estado: 404, cuerpo: { error: 'Funcionario no encontrado' } }), true);
+    assert.equal(es404DeElemento('funcionarios', { estado: 404, cuerpo: { error: 'Noticia no encontrada' } }), false);
+    assert.equal(es404DeElemento('hero', { estado: 404, cuerpo: { error: 'Hero no encontrado' } }), false);
+    assert.equal(es404DeElemento('noticias', { estado: 200, cuerpo: { error: 'Noticia no encontrada' } }), false);
+    assert.equal(es404DeElemento('noticias', { estado: 404, jsonInvalido: true }), false);
+  });
+
   test('clasificarDetallePropio', () => {
     const propio = (respuesta) => clasificarDetallePropio({
       tenant: A, coleccion: 'noticias', clave: 'slug', valor: 'hola', elemento: { id: 'n-a', slug: 'hola' },
@@ -651,6 +1005,19 @@ describe('reglas de aislamiento', () => {
     assert.equal(propio({ estado: 200, cuerpo: { id: 'n-a', slug: 'hola' } }).resultado, 'aviso');
     assert.equal(propio({ estado: 404, cuerpo: { error: 'Noticia no encontrada' } }).resultado, 'aviso');
     assert.equal(propio({ estado: 0, error: 'error de red: ECONNRESET' }).resultado, 'error');
+    // Bajo su propio tenant se espera 200: un 404 que no es "Noticia no encontrada" es ERROR.
+    const ruta = propio({ estado: 404, cuerpo: { error: 'Ruta no encontrada', path: '/x' } });
+    assert.equal(ruta.resultado, 'error');
+    assert.match(ruta.hallazgos[0].mensaje, /se esperaba 200.*la ruta o el municipio no existen/);
+    assert.equal(propio({ estado: 404, cuerpo: { error: "Municipio 'a' no encontrado" } }).resultado, 'error');
+    assert.equal(propio({ estado: 404, cuerpo: undefined, jsonInvalido: true }).resultado, 'error');
+    // `valido`: solo con 200 y datos el 404 cruzado demuestra aislamiento.
+    assert.equal(propio({ estado: 200, cuerpo: { id: 'n-a', municipioId: 'id-a', slug: 'hola' } }).valido, true);
+    assert.equal(propio({ estado: 200, cuerpo: { id: 'n-a', slug: 'hola' } }).valido, true);
+    assert.equal(propio({ estado: 200, cuerpo: { id: 'n-a', municipioId: 'id-b', slug: 'hola' } }).valido, true);
+    assert.equal(propio({ estado: 200, cuerpo: {} }).valido, false);
+    assert.equal(propio({ estado: 404, cuerpo: { error: 'Noticia no encontrada' } }).valido, false);
+    assert.equal(propio({ estado: 500, cuerpo: {} }).valido, false);
   });
 
   test('calcularCodigo: FUGA tiene prioridad sobre ERROR', () => {
@@ -697,6 +1064,63 @@ describe('cliente HTTP', () => {
     assert.ok(llamadas.every((m) => m === 'GET'));
   });
 
+  test('cortacircuitos: tras N fallos seguidos no llama más a fetch; una respuesta HTTP reinicia la cuenta', async () => {
+    let llamadas = 0;
+    const fetchImpl = async () => {
+      llamadas++;
+      if (llamadas === 3) return new Response('[]', { status: 200 });
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    };
+    const cliente = crearCliente({ api: 'http://x', fetchImpl, retrasoReintento: 0, concurrencia: 1, fallosSeguidos: 3 });
+    const r1 = await cliente.get('/1'); // llamadas 1 y 2: falla
+    assert.equal(r1.estado, 0);
+    assert.equal(r1.omitida, false);
+    const r2 = await cliente.get('/2'); // llamada 3: 200 → reinicia la cuenta
+    assert.equal(r2.estado, 200);
+    assert.equal(cliente.estadisticas.fallosSeguidos, 0);
+    for (const ruta of ['/3', '/4', '/5']) await cliente.get(ruta); // 3 fallos seguidos (6 llamadas)
+    assert.equal(llamadas, 9);
+    assert.equal(cliente.estadisticas.cortado, true);
+    assert.match(cliente.estadisticas.motivoCorte, /ECONNREFUSED/);
+    const r6 = await cliente.get('/6');
+    assert.equal(llamadas, 9, 'con el cortacircuitos abierto no se hacen más peticiones');
+    assert.equal(r6.omitida, true);
+    assert.equal(r6.estado, 0);
+    assert.match(r6.error, /cortacircuitos/);
+    assert.equal(cliente.estadisticas.omitidas, 1);
+  });
+
+  test('cortacircuitos: los 5xx no lo abren (la API sí responde) y 0 lo desactiva', async () => {
+    let llamadas = 0;
+    const con5xx = crearCliente({
+      api: 'http://x', retrasoReintento: 0, fallosSeguidos: 2,
+      fetchImpl: async () => { llamadas++; return new Response('{"error":"x"}', { status: 503 }); },
+    });
+    for (let i = 0; i < 4; i++) await con5xx.get(`/${i}`);
+    assert.equal(con5xx.estadisticas.cortado, false);
+    assert.equal(llamadas, 8);
+    const sinCorte = crearCliente({
+      api: 'http://x', retrasoReintento: 0, fallosSeguidos: 0,
+      fetchImpl: async () => { throw new TypeError('fetch failed'); },
+    });
+    for (let i = 0; i < 6; i++) await sinCorte.get(`/${i}`);
+    assert.equal(sinCorte.estadisticas.cortado, false);
+    assert.equal(sinCorte.estadisticas.peticiones, 12);
+  });
+
+  test('si el reintento se omite por el tope, vale el resultado real del primer intento', async () => {
+    const cliente = crearCliente({
+      api: 'http://x', retrasoReintento: 0, maxPeticiones: 1,
+      fetchImpl: async () => new Response('{"error":"caído"}', { status: 502 }),
+    });
+    const r = await cliente.get('/y');
+    assert.equal(r.estado, 502);
+    assert.equal(r.omitida, false);
+    assert.equal(r.intentos, 1);
+    assert.equal(cliente.estadisticas.reintentos, 0);
+    assert.equal(cliente.estadisticas.agotado, true);
+  });
+
   test('404 no se reintenta', async () => {
     let n = 0;
     const cliente = crearCliente({
@@ -740,13 +1164,25 @@ describe('salida', () => {
     assert.equal(usarColor({ isTTY: true }, { NO_COLOR: '1' }), false);
   });
 
-  test('--ayuda sale con 0 y argumentos inválidos con 2', async () => {
+  test('--ayuda sale con 0; argumentos inválidos y presupuesto excedido con 3 (como el resto de la suite)', async () => {
     const ayuda = await correr(['--ayuda']);
     assert.equal(ayuda.codigo, 0);
     assert.match(ayuda.stdout, /Códigos de salida/);
+    assert.doesNotMatch(ayuda.stdout, /^\s*2\s/m, 'la ayuda no debe documentar un código 2');
     const malo = await correr(['--muestras', 'x']);
-    assert.equal(malo.codigo, 2);
+    assert.equal(malo.codigo, 3);
     assert.match(malo.stderr, /--muestras debe ser un entero/);
+    const desconocida = await correr(['--opcion-inexistente']);
+    assert.equal(desconocida.codigo, 3);
+    assert.match(desconocida.stderr, /opción desconocida: --opcion-inexistente/);
+    const api = await iniciarApi({ tenants: datosBase() });
+    try {
+      const tope = await correr(['--api', api.url, '--max-peticiones', '10']);
+      assert.equal(tope.codigo, 3);
+      assert.match(tope.stderr, /supera --max-peticiones 10/);
+    } finally {
+      await api.cerrar();
+    }
   });
 
   test('importar el módulo no ejecuta main()', async () => {

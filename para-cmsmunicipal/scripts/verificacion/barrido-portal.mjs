@@ -29,7 +29,9 @@
 // Ayuda: node barrido-portal.mjs --ayuda
 //
 // Códigos de salida: 0 sin restos (puede haber avisos), 1 hay restos,
-//                    3 error de red o de argumentos (o barrido incompleto).
+//                    3 error de red o de argumentos, o barrido incompleto (una
+//                    ruta, el sitemap o un recurso con 5xx/429/otro error que no
+//                    sea 404 o 410).
 
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -46,7 +48,13 @@ export const REINTENTOS = 1;
 export const ESPERA_REINTENTO_MS = 750;
 export const RADIO_CONTEXTO = 60;
 export const MAX_CONTEXTOS_POR_ARCHIVO = 10;
+/** Máximo de sitemaps hijos que se descargan en total (todos los niveles). */
 export const MAX_SITEMAPS_HIJOS = 10;
+/** Niveles de índices de sitemaps que se siguen (índice -> índice -> urlset). */
+export const MAX_NIVELES_SITEMAP = 2;
+export const MAX_REDIRECCIONES = 5;
+/** Tope de --timeout: setTimeout no admite más de 2^31-1 ms y más de 10 min no tiene sentido. */
+export const TIMEOUT_MAXIMO = 600_000;
 
 export const CODIGO = Object.freeze({ LIMPIO: 0, RESTOS: 1, ERROR: 3 });
 
@@ -68,6 +76,16 @@ export const MUNICIPIOS_MOLDE = Object.freeze([
   'Bacoachi', 'Cucurpe', 'Opodepe', 'Rayón', 'Carbó', 'San Javier', 'Ónavas',
   'Suaqui Grande', 'Yécora', 'La Colorada', 'San Miguel de Horcasitas',
 ]);
+
+/**
+ * Formas cortas de uso común de algunos nombres del listado de moldes. Solo
+ * las que no chocan con otra cosa: no se incluyen "Nácori" (Nácori Grande es
+ * localidad de Villa Pesqueira), "Hidalgo" ni "San Felipe".
+ */
+export const FORMAS_CORTAS_MOLDE = Object.freeze({
+  'Nacozari de García': Object.freeze(['Nacozari']),
+  'San Miguel de Horcasitas': Object.freeze(['Horcasitas']),
+});
 
 /** Prefijos del campo `nombre` de la API que no forman parte del nombre del municipio. */
 const RE_PREFIJO_NOMBRE =
@@ -127,7 +145,10 @@ export function normalizarTermino(texto) {
 
 /** Quita "H. Ayuntamiento de " / "Municipio de " del campo nombre de la API. */
 export function nombreBase(nombreApi) {
-  return String(nombreApi ?? '').replace(RE_PREFIJO_NOMBRE, '').trim();
+  return String(nombreApi ?? '')
+    .replace(RE_PREFIJO_NOMBRE, '')
+    .replace(/\s*,\s*sonora\.?\s*$/i, '')
+    .trim();
 }
 
 const ENTIDADES = {
@@ -163,9 +184,57 @@ function desdeCodigo(cp) {
 const ESCAPE_SIMPLE = { n: '\n', r: '\n', t: '\t', f: ' ', v: ' ', b: ' ', 0: ' ' };
 
 // Escapes JS/JSON (\uXXXX, \u{X}, \xXX, \n, \", \/ ... con 1+ barras, para
-// cubrir el doble escapado del payload RSC), entidades HTML y tramos no ASCII.
+// cubrir el doble escapado del payload RSC), entidades HTML, tramos con
+// codificación por porcentaje (%2F, %20, %C3%A1) y tramos no ASCII.
 const RE_DECODIFICABLE =
-  /\\+(?:u\{([0-9a-fA-F]{1,6})\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([nrtfvb0])|(["'/`]))|&(?:#(\d{1,7});?|#[xX]([0-9a-fA-F]{1,6});?|([a-zA-Z][a-zA-Z0-9]{1,31});)|[^\x00-\x7f]+/g;
+  /\\+(?:u\{([0-9a-fA-F]{1,6})\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([nrtfvb0])|(["'/`]))|&(?:#(\d{1,7});?|#[xX]([0-9a-fA-F]{1,6});?|([a-zA-Z][a-zA-Z0-9]{1,31});)|((?:%[0-9a-fA-F]{2})+)|[^\x00-\x7f]+/g;
+
+const DECODIFICADOR_UTF8 = new TextDecoder('utf-8', { fatal: true });
+/** Letras del español en Latin-1 (%E1 = á en URLs antiguas). Otros bytes sueltos no se tocan. */
+const LATIN1_ESPANOL = new Set([0xc1, 0xc9, 0xcd, 0xd1, 0xd3, 0xda, 0xdc, 0xe1, 0xe9, 0xed, 0xf1, 0xf3, 0xfa, 0xfc]);
+
+function largoUtf8(b0) {
+  if (b0 < 0x80) return 1;
+  if (b0 >= 0xc2 && b0 <= 0xdf) return 2;
+  if (b0 >= 0xe0 && b0 <= 0xef) return 3;
+  if (b0 >= 0xf0 && b0 <= 0xf4) return 4;
+  return 0;
+}
+
+/**
+ * Decodifica un tramo "%XX%YY..." como UTF-8 (y, si un byte no forma UTF-8
+ * válido, como letra Latin-1 del español). Devuelve piezas
+ * { texto, desde, hasta, decodificado } con posiciones relativas al tramo;
+ * lo que no se puede decodificar queda tal cual ("50%de" sigue igual).
+ */
+export function decodificarPorcentajes(tramo) {
+  const bytes = [];
+  for (let i = 0; i + 2 < tramo.length; i += 3) bytes.push(parseInt(tramo.slice(i + 1, i + 3), 16));
+  const piezas = [];
+  let i = 0;
+  while (i < bytes.length) {
+    const n = largoUtf8(bytes[i]);
+    let texto = null;
+    if (n > 0 && i + n <= bytes.length) {
+      try {
+        texto = DECODIFICADOR_UTF8.decode(Uint8Array.from(bytes.slice(i, i + n)));
+      } catch {
+        texto = null;
+      }
+    }
+    if (texto !== null) {
+      piezas.push({ texto, desde: i * 3, hasta: (i + n) * 3, decodificado: true });
+      i += n;
+    } else if (LATIN1_ESPANOL.has(bytes[i])) {
+      piezas.push({ texto: String.fromCharCode(bytes[i]), desde: i * 3, hasta: i * 3 + 3, decodificado: true });
+      i++;
+    } else {
+      piezas.push({ texto: tramo.slice(i * 3, i * 3 + 3), desde: i * 3, hasta: i * 3 + 3, decodificado: false });
+      i++;
+    }
+  }
+  return piezas;
+}
 
 class Mapa {
   constructor(capacidad) {
@@ -233,6 +302,21 @@ function pasoNormalizar(original) {
       }
       continue;
     }
+    if (m[9] !== undefined) {
+      // Codificación por porcentaje: cada pieza se mapea a sus "%XX" originales.
+      for (const pieza of decodificarPorcentajes(m[9])) {
+        if (!pieza.decodificado) {
+          partes.push(pieza.texto.toLowerCase());
+          mapa.identidad(ini + pieza.desde, ini + pieza.hasta);
+          continue;
+        }
+        cambios = true;
+        const p = plegar(pieza.texto);
+        partes.push(p);
+        mapa.bloque(p.length, ini + pieza.desde, ini + pieza.hasta);
+      }
+      continue;
+    }
     let dec = null;
     if (m[1] !== undefined) dec = desdeCodigo(parseInt(m[1], 16));
     else if (m[2] !== undefined) dec = String.fromCharCode(parseInt(m[2], 16));
@@ -267,15 +351,16 @@ function pasoNormalizar(original) {
 
 /**
  * Normaliza un documento para buscar: decodifica escapes \uXXXX (y \xXX, \n,
- * \", ...), entidades HTML (&aacute; &#225; &#xE1; &quot; &amp;), pasa a
- * minúsculas y quita diacríticos. Hace hasta dos pasadas para cubrir el doble
- * escapado (&amp;aacute;, \\u00e1). Devuelve { texto, inicio, fin }, donde
+ * \", ...), entidades HTML (&aacute; &#225; &#xE1; &quot; &amp;), la
+ * codificación por porcentaje de URLs (%2F, %20, %C3%A1), pasa a minúsculas y
+ * quita diacríticos. Hace hasta dos pasadas para cubrir el doble escapado
+ * (&amp;aacute;, \\u00e1, %252F). Devuelve { texto, inicio, fin }, donde
  * inicio[i]/fin[i] delimitan en el ORIGINAL la unidad i del texto normalizado.
  */
 export function normalizarConMapa(original) {
   const texto = String(original ?? '');
   let r = pasoNormalizar(texto);
-  if (r.cambios && /[&\\]/.test(r.texto)) {
+  if (r.cambios && /[&\\]|%[0-9a-f]{2}/.test(r.texto)) {
     const r2 = pasoNormalizar(r.texto);
     if (r2.cambios) {
       const n = r2.texto.length;
@@ -305,10 +390,14 @@ export function fragmento(original, ini, fin, radio = RADIO_CONTEXTO) {
   if (a > 0 && /[\udc00-\udfff]/.test(original[a])) a--;
   if (b < original.length && /[\ud800-\udbff]/.test(original[b - 1])) b++;
   const limpio = (s) => s.replace(/\s+/g, ' ');
+  // Una coincidencia que cruza etiquetas o marcado de React puede ser larga:
+  // se abrevia por en medio para que el fragmento siga siendo legible.
+  let medio = limpio(original.slice(ini, fin));
+  if (medio.length > 120) medio = `${medio.slice(0, 50)}…${medio.slice(-50)}`;
   return (
     (a > 0 ? '…' : '') +
     limpio(original.slice(a, ini)) +
-    '«' + limpio(original.slice(ini, fin)) + '»' +
+    '«' + medio + '»' +
     limpio(original.slice(fin, b)) +
     (b < original.length ? '…' : '')
   );
@@ -350,21 +439,52 @@ export function listaMunicipios(json) {
  * Construye la lista de términos a buscar.
  * - Nombres (sin prefijo) y slugs de todos los municipios de la API menos el
  *   propio, y el dominio de cada uno (sin "www.").
- * - MUNICIPIOS_MOLDE (listado fijo) y --extra.
+ * - MUNICIPIOS_MOLDE (listado fijo) con su forma sin espacios ("villahidalgo",
+ *   como en slugs y dominios) y FORMAS_CORTAS_MOLDE ("Nacozari"), y --extra.
  * - Excluye el propio nombre/slug/dominio y lo de --permitir (comparando
- *   también sin espacios: "san javier" permite "sanjavier").
- * Lanza ErrorBarrido si el slug no está en la API y no se dio --nombre.
+ *   también sin espacios: "san javier" permite "sanjavier"). Si un nombre del
+ *   listado de moldes es el propio o está permitido, se excluyen también sus
+ *   variantes.
+ * Si el slug está en la API, el nombre propio es el de la API: --nombre no se
+ * suma a los nombres propios (una línea de comando reutilizada de otro portal
+ * silenciaría restos reales) y, si no coincide con el de la API, se lanza
+ * ErrorBarrido. Lanza ErrorBarrido si el slug no está en la API y no se dio
+ * --nombre.
  */
-export function construirTerminos({ municipios = [], slug, nombre, extra = [], permitir = [], molde = MUNICIPIOS_MOLDE }) {
+export function construirTerminos({
+  municipios = [],
+  slug,
+  nombre,
+  extra = [],
+  permitir = [],
+  molde = MUNICIPIOS_MOLDE,
+  formasCortas = FORMAS_CORTAS_MOLDE,
+}) {
   const slugPropio = String(slug ?? '').trim().toLowerCase();
   const tenant = municipios.find((m) => String(m?.slug ?? '').toLowerCase() === slugPropio);
+  const nombreArg = String(nombre ?? '').trim();
   let nombrePropio;
   let fuenteNombre;
-  if (tenant) {
-    nombrePropio = nombreBase(tenant.nombre) || String(nombre ?? '').trim();
+  if (tenant && nombreBase(tenant.nombre)) {
+    nombrePropio = nombreBase(tenant.nombre);
     fuenteNombre = 'api';
-  } else if (nombre && String(nombre).trim()) {
-    nombrePropio = String(nombre).trim();
+    if (nombreArg) {
+      const a = compacto(normalizarTermino(nombreArg));
+      const b = compacto(normalizarTermino(nombrePropio));
+      if (!a || !(a.includes(b) || b.includes(a))) {
+        throw new ErrorBarrido(
+          `--nombre "${nombreArg}" no coincide con el municipio del slug "${slugPropio}" en la API ` +
+            `("${nombrePropio}"). Revisa --slug, o quita --nombre: si el slug ya está dado de alta, ` +
+            'el nombre se toma de la API.',
+        );
+      }
+    }
+  } else if (tenant && nombreArg) {
+    // Alta sin nombre en la API: se usa --nombre.
+    nombrePropio = nombreArg;
+    fuenteNombre = 'argumento';
+  } else if (nombreArg) {
+    nombrePropio = nombreArg;
     fuenteNombre = 'argumento';
   } else {
     throw new ErrorBarrido(
@@ -373,8 +493,10 @@ export function construirTerminos({ municipios = [], slug, nombre, extra = [], p
     );
   }
 
+  // Solo el nombre efectivo (el de la API si el slug está dado de alta), el
+  // slug y el dominio registrado: nunca un --nombre que la API contradice.
   const propios = new Set(
-    [nombrePropio, nombre, slugPropio, tenant ? dominioBase(tenant.dominio) : '']
+    [nombrePropio, slugPropio, tenant ? dominioBase(tenant.dominio) : '']
       .filter(Boolean)
       .map(normalizarTermino),
   );
@@ -413,7 +535,27 @@ export function construirTerminos({ municipios = [], slug, nombre, extra = [], p
     const d = dominioBase(m?.dominio);
     if (d) agregar(d, d, n || s, 'API (dominio)');
   }
-  for (const n of molde) agregar(n, n, n, 'listado de moldes');
+  const esPropio = (t) => propios.has(t) || propiosSinEsp.has(sinEspacios(t));
+  const esPermitido = (t) => permitidosSinEsp.has(sinEspacios(t));
+  for (const n of molde) {
+    // Grupo: nombre completo, forma sin espacios y formas cortas. Si el nombre
+    // completo es el propio o alguna forma está permitida, se excluye todo el
+    // grupo (p. ej. "Horcasitas" en el portal de San Miguel de Horcasitas).
+    const cortas = Object.hasOwn(formasCortas, n) ? formasCortas[n] : [];
+    const completo = normalizarTermino(n);
+    const grupo = [completo, sinEspacios(completo), ...cortas.map(normalizarTermino)];
+    if (esPropio(completo) || grupo.some(esPermitido)) {
+      for (const t of new Set(grupo)) {
+        excluidos.push({ termino: t, motivo: esPropio(completo) ? 'propio' : 'permitido' });
+      }
+      continue;
+    }
+    agregar(n, n, n, 'listado de moldes');
+    if (sinEspacios(completo) !== completo) {
+      agregar(sinEspacios(completo), sinEspacios(completo), n, 'listado de moldes (sin espacios)');
+    }
+    for (const c of cortas) agregar(c, c, n, 'listado de moldes (forma corta)');
+  }
   for (const e of extra) agregar(e, e, null, '--extra');
 
   const terminos = [...mapa.values()].sort((a, b) => a.termino.localeCompare(b.termino));
@@ -441,6 +583,34 @@ function dedupPor(lista, clave) {
   });
 }
 
+// Separadores admitidos entre las palabras de un término de varias palabras.
+// Además de espacio, "-", "_" y "+" (San+Javier en una URL), el texto
+// renderizado suele llegar partido por marcado:
+//   HTML:  Villa <span class="text-oro">Hidalgo</span>, Nacozari de<br/>García,
+//          San<!-- --> <!-- -->Javier (así separa React dos textos contiguos).
+//   RSC:   "Villa ",["$","span",null,{"className":"x","children":"Hidalgo"}]
+//   JSX compilado (chunks): "Villa ",(0,r.jsx)("span",{className:"x",children:"Hidalgo"})
+//   cierres: {"children":"San"}]," Javier"  /  {children:"San"})," Javier"
+//   hijos contiguos: ["San"," ","Javier"]
+// Cada unidad empieza con "<" o comilla y termina con ">" o comilla, así que
+// las alternativas no se solapan con los espacios (sin retroceso explosivo).
+const U_ESPACIO = String.raw`[\s\-_+]`;
+const U_ETIQUETA = String.raw`<\/?[a-z][^<>]{0,300}>`;
+const U_COMENTARIO = String.raw`<!--(?:(?!-->)[\s\S]){0,80}-->`;
+const U_PROPS = String.raw`(?:[^{}"]|"[^"]{0,200}"){0,60}?`;
+const U_RSC_ABRE = String.raw`"\s*,\s*\[\s*"\$"\s*,\s*"[^"]{1,60}"\s*,\s*(?:null|"[^"]{0,80}")\s*,\s*\{${U_PROPS}"children"\s*:\s*\[?\s*"`;
+const U_JSX_ABRE = String.raw`"\s*,\s*(?:\(\s*0\s*,\s*)?[\w$]+(?:\.[\w$]+)*\s*\)?\s*\(\s*(?:"[^"]{1,60}"|[\w$]+(?:\.[\w$]+)*)\s*,\s*\{${U_PROPS}children\s*:\s*\[?\s*"`;
+const U_CIERRA = String.raw`"(?:\s*[}\])]){1,6}\s*,\s*"`;
+const U_CONTIGUOS = String.raw`"\s*,\s*"`;
+const SEPARADOR_PALABRAS =
+  String.raw`(?![\p{L}\p{N}])${U_ESPACIO}*` +
+  `(?:(?:${U_ETIQUETA}|${U_COMENTARIO}|${U_RSC_ABRE}|${U_JSX_ABRE}|${U_CIERRA}|${U_CONTIGUOS})${U_ESPACIO}*){0,8}`;
+
+/** Cuerpo (sin límites) de la regex de un término normalizado. */
+function cuerpoTermino(norm) {
+  return norm.split(/[\s\-_]+/).filter(Boolean).map(escaparRegex).join(SEPARADOR_PALABRAS);
+}
+
 /**
  * Regex de un término normalizado con límites de palabra Unicode (como \b, pero
  * con letras acentuadas y "ñ" como parte de la palabra): "carbo" no coincide
@@ -448,31 +618,99 @@ function dedupPor(lista, clave) {
  * cuenta como separador para detectar nombres de archivo (escudo_sahuaripa.png).
  * Si el término empieza o termina en dígito, tampoco coincide dentro de un
  * número decimal ("1639" no aparece en "0.1639" ni en "1639.5").
- * Las palabras de un término de varias palabras admiten espacio, "-" o "_".
+ * Las palabras de un término de varias palabras admiten espacio, "-", "_", "+",
+ * etiquetas y comentarios HTML y el marcado de React (ver SEPARADOR_PALABRAS).
+ * buscarTermino() usa el mismo cuerpo y además reconoce el camelCase.
  */
 export function regexTermino(termino) {
   const norm = normalizarTermino(termino);
-  const partes = norm.split(/[\s\-_]+/).filter(Boolean).map(escaparRegex);
-  const cuerpo = partes.join('[\\s\\-_]+');
   const antes = /^\d/.test(norm) ? '(?<![\\p{L}\\p{N}]|\\d[.,])' : '(?<![\\p{L}\\p{N}])';
   const despues = /\d$/.test(norm) ? '(?![\\p{L}\\p{N}]|[.,]\\d)' : '(?![\\p{L}\\p{N}])';
-  return new RegExp(`${antes}${cuerpo}${despues}`, 'gu');
+  return new RegExp(`${antes}${cuerpoTermino(norm)}${despues}`, 'gu');
+}
+
+const cacheCuerpos = new Map();
+function regexCuerpo(norm) {
+  let re = cacheCuerpos.get(norm);
+  if (!re) {
+    re = new RegExp(cuerpoTermino(norm), 'gu');
+    cacheCuerpos.set(norm, re);
+  }
+  re.lastIndex = 0;
+  return re;
+}
+
+const RE_ALNUM_AL_FINAL = /[\p{L}\p{N}]$/u;
+const RE_ALNUM_AL_INICIO = /^[\p{L}\p{N}]/u;
+const RE_MAYUSCULA = /^\p{Lu}/u;
+const RE_MINUSCULA_O_DIGITO = /^[\p{Ll}\p{N}]/u;
+const RE_MINUSCULA = /^\p{Ll}/u;
+
+function limiteIzquierdo(t, a, numerico) {
+  if (a === 0) return true;
+  const antes = t.slice(Math.max(0, a - 2), a);
+  if (RE_ALNUM_AL_FINAL.test(antes)) return false;
+  return !(numerico && /\d[.,]$/.test(antes));
+}
+
+function limiteDerecho(t, b, numerico) {
+  const despues = t.slice(b, b + 2);
+  if (RE_ALNUM_AL_INICIO.test(despues)) return false;
+  return !(numerico && /^[.,]\d/.test(despues));
+}
+
+// camelCase en el ORIGINAL: "escudoSahuaripa.png", "logoCarbo", "SahuaripaEscudo".
+function camelIzquierdo(original, norm, a) {
+  const oi = norm.inicio[a];
+  return oi > 0 && RE_MAYUSCULA.test(original[oi] ?? '') && RE_MINUSCULA_O_DIGITO.test(original[oi - 1] ?? '');
+}
+
+function camelDerecho(original, norm, b) {
+  const of = norm.fin[b - 1];
+  return of < original.length && RE_MINUSCULA.test(original[of - 1] ?? '') && RE_MAYUSCULA.test(original[of] ?? '');
+}
+
+/**
+ * Busca un término en el texto normalizado `t` con los mismos límites que
+ * regexTermino(). Si se da { original, norm } (el resultado de
+ * normalizarConMapa), un límite también vale cuando en el original hay un
+ * cambio de minúscula a mayúscula (camelCase): "/img/escudoSahuaripa.png".
+ * Devuelve [[a, b], ...] en posiciones del texto normalizado.
+ */
+export function buscarTermino(t, termino, { original = null, norm = null } = {}) {
+  const n = normalizarTermino(termino);
+  if (!n) return [];
+  const re = regexCuerpo(n);
+  const empiezaDigito = /^\d/.test(n);
+  const terminaDigito = /\d$/.test(n);
+  const camel = original !== null && norm !== null;
+  const out = [];
+  let m;
+  while ((m = re.exec(t)) !== null) {
+    const a = m.index;
+    const b = a + m[0].length;
+    const izq = limiteIzquierdo(t, a, empiezaDigito) || (camel && camelIzquierdo(original, norm, a));
+    const der = b > a && (limiteDerecho(t, b, terminaDigito) || (camel && camelDerecho(original, norm, b)));
+    if (izq && der) {
+      out.push([a, b]);
+      re.lastIndex = b;
+    } else {
+      re.lastIndex = a + 1;
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
 // Detección en un documento
 // ---------------------------------------------------------------------------
 
-function rangosDe(texto, re) {
-  const out = [];
-  for (const m of texto.matchAll(re)) out.push([m.index, m.index + m[0].length]);
-  return out;
-}
-
 const contenido = (rangos, a, b) => rangos.some(([x, y]) => a >= x && b <= y);
 const solapa = (rangos, a, b) => rangos.some(([x, y]) => a < y && b > x);
 
-const RE_CLOUDINARY = /res\.cloudinary\.com(?:\/|%2f)[^\s"'<>()\\,&]*/g;
+// Las comas son válidas en las rutas de Cloudinary (c_fill,w_800,f_auto/...):
+// la URL se corta solo en espacios, comillas, <, >, paréntesis, "\" y "&".
+const RE_CLOUDINARY = /res\.cloudinary\.com(?:\/|%2f)[^\s"'<>()\\&]*/g;
 const RE_SEGMENTO_CMS = /cms-municipal(?:\/|%2f)([a-z0-9][a-z0-9_-]*)(?:\/|%2f)/g;
 
 const RE_CORREO =
@@ -481,18 +719,22 @@ const RE_CORREO =
 // Teléfonos mexicanos: 10 dígitos nacionales (LADA 2-9), con o sin +52 / +52 1.
 // - Enlaces explícitos: tel:, wa.me/, api.whatsapp.com/send?phone=.
 // - Con separadores, LADA de 2-3 dígitos y hasta 4 grupos: 662 123 4567,
-//   (662) 123-45-67, 623 23 35 131, 55 1234 5678, +52 1 662 123 4567.
+//   (662) 123-45-67, 623 23 35 131, 55 1234 5678, +52 1 662 123 4567; o la
+//   LADA y un bloque de 7-8 dígitos: (634) 3420123, 662 2134567. Con prefijo
+//   de larga distancia opcional: 01 (662) 213 4567, 044 662 123 4567.
 // - Corridos (6621234567): solo con +52 o si antes (40 caracteres) dice tel/cel/
 //   whatsapp/fax/phone..., para no confundirlos con identificadores o fechas.
 // Los límites evitan tomar un pedazo de un número más largo o de una serie de
 // números (coordenadas SVG, arreglos).
 const SEP_TEL = String.raw`[\s.-]`;
 const PREFIJO_52 = String.raw`\+\s?52${SEP_TEL}?(?:1${SEP_TEL}?)?`;
+const PREFIJO_LD = String.raw`0(?:1|44|45)${SEP_TEL}?`;
 const RE_TEL_EXPLICITO =
   /(?:tel:|callto:)\s*(\+?[\d\s().-]{8,22}\d)|wa\.me\/(\d{10,13})|whatsapp\.com\/send\/?\?phone=(\d{10,13})/g;
 const RE_TELEFONO = new RegExp(
   String.raw`(?<![\w+.,/-])(?<!\d\s)(?:` +
-    `(?:${PREFIJO_52})?(?:\\(\\d{2,3}\\)\\s?|\\d{2,3}${SEP_TEL})\\d{2,4}(?:${SEP_TEL}\\d{2,4}){0,2}` +
+    `(?:${PREFIJO_52}|${PREFIJO_LD})?(?:\\(\\d{2,3}\\)\\s?|\\d{2,3}${SEP_TEL})` +
+    `(?:\\d{7,8}|\\d{2,4}(?:${SEP_TEL}\\d{2,4}){0,2})` +
     `|(${PREFIJO_52})?\\d{10}` +
     String.raw`)(?!\w)(?![.,/-]\d)(?!\s\d)`,
   'g',
@@ -511,7 +753,9 @@ export function esCorreoPlaceholder(correo) {
 /** 10 dígitos nacionales o null si no parece un teléfono mexicano. */
 export function digitosTelefono(texto) {
   let d = String(texto).replace(/\D/g, '');
-  if (d.length === 13 && d.startsWith('521')) d = d.slice(3);
+  if (d.length === 13 && /^04[45]/.test(d)) d = d.slice(3); // 044/045 + 10 dígitos
+  else if (d.length === 12 && d.startsWith('01')) d = d.slice(2); // 01 + 10 dígitos
+  else if (d.length === 13 && d.startsWith('521')) d = d.slice(3);
   else if (d.length === 12 && d.startsWith('52')) d = d.slice(2);
   else if (d.length === 11 && d.startsWith('1')) d = d.slice(1);
   if (d.length !== 10) return null;
@@ -575,9 +819,11 @@ export function analizarDocumento(original, conf, { radio = RADIO_CONTEXTO } = {
   // Máscaras: apariciones del propio nombre y de frases permitidas (se ignoran
   // coincidencias contenidas en ellas) y segmentos cms-municipal/<slug>/ de
   // Cloudinary (se reportan como aviso, no como resto).
+  const conCamel = { original: texto, norm };
   const mascarasContenido = [];
   for (const p of [...conf.propio.terminos, ...conf.permitidos]) {
-    if (p && t.includes(p.split(' ')[0])) mascarasContenido.push(...rangosDe(t, regexTermino(p)));
+    if (!p || !t.includes(p.split(/[\s\-_]+/)[0])) continue;
+    for (const r of buscarTermino(t, p, conCamel)) mascarasContenido.push(r);
   }
 
   const cloudinary = [];
@@ -596,17 +842,25 @@ export function analizarDocumento(original, conf, { radio = RADIO_CONTEXTO } = {
     }
   }
 
-  const restos = [];
+  const crudos = [];
   for (const term of conf.terminos) {
     const primera = term.termino.split(/[\s\-_]+/)[0];
     if (!t.includes(primera)) continue;
-    for (const m of t.matchAll(regexTermino(term.termino))) {
-      const a = m.index;
-      const b = a + m[0].length;
+    for (const [a, b] of buscarTermino(t, term.termino, conCamel)) {
       if (contenido(mascarasContenido, a, b)) continue;
       if (solapa(mascarasCloudinary, a, b)) continue;
-      restos.push(hallazgo(term.termino, a, b));
+      crudos.push({ clave: term.termino, a, b });
     }
+  }
+  // Una coincidencia contenida en otra más larga no se cuenta dos veces:
+  // "Horcasitas" dentro de "San Miguel de Horcasitas" queda solo como la larga.
+  crudos.sort((x, y) => x.a - y.a || y.b - x.b);
+  const restos = [];
+  let finMayor = -1;
+  for (const c of crudos) {
+    if (c.b <= finMayor) continue;
+    finMayor = c.b;
+    restos.push(hallazgo(c.clave, c.a, c.b));
   }
 
   const correos = [];
@@ -658,10 +912,28 @@ function decodificarEntidadesBasicas(s) {
     .replace(/&gt;/gi, '>');
 }
 
-/** Normaliza una ruta de página: sin query ni hash, sin barra final (salvo "/"). */
+const RE_NO_RESERVADO = /^[A-Za-z0-9\-._~]$/;
+
+/**
+ * Normaliza una ruta de página: sin query ni hash, sin barra final (salvo "/")
+ * y con una sola forma de codificación, para que "/noticias/año",
+ * "/noticias/a%c3%b1o" y "/noticias/a%C3%B1o" sean la misma ruta: se resuelve
+ * con URL (que codifica lo no ASCII y resuelve "." y ".."), los escapes quedan
+ * en mayúsculas y los de caracteres no reservados (%41 = "A") se decodifican.
+ */
 export function normalizarRuta(ruta) {
   let r = String(ruta ?? '').replace(/[?#].*$/, '');
   if (!r.startsWith('/')) r = `/${r}`;
+  r = r.replace(/\/{2,}/g, '/');
+  try {
+    r = new URL(r, 'http://ruta.invalid').pathname;
+  } catch {
+    /* se deja como está */
+  }
+  r = r.replace(/%[0-9a-fA-F]{2}/g, (e) => {
+    const c = String.fromCharCode(parseInt(e.slice(1), 16));
+    return RE_NO_RESERVADO.test(c) ? c : e.toUpperCase();
+  });
   r = r.replace(/\/{2,}/g, '/');
   if (r.length > 1) r = r.replace(/\/+$/, '');
   return r || '/';
@@ -703,9 +975,13 @@ export function reescribirHost(loc, origenPortal) {
   return { url: base.origin + ruta, ruta, hostOriginal: u.host, reescrito };
 }
 
-/** Enlaces internos href="/..." (o absolutos al mismo host) de un HTML, como rutas. */
-export function extraerEnlacesInternos(html, origenPortal) {
+/**
+ * Enlaces internos href="/..." (o absolutos al mismo host, o a uno de
+ * `hostsInternos`) de un HTML, como rutas.
+ */
+export function extraerEnlacesInternos(html, origenPortal, hostsInternos = []) {
   const base = new URL(origenPortal);
+  const internos = new Set([base.host, ...hostsInternos]);
   const rutas = [];
   for (const m of String(html ?? '').matchAll(/\shref\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
     const href = decodificarEntidadesBasicas((m[1] ?? m[2] ?? '').trim());
@@ -716,7 +992,7 @@ export function extraerEnlacesInternos(html, origenPortal) {
     } else if (/^https?:\/\//i.test(href)) {
       try {
         const u = new URL(href);
-        if (u.host === base.host) ruta = normalizarRuta(u.pathname);
+        if (internos.has(u.host) || internos.has(u.hostname)) ruta = normalizarRuta(u.pathname);
       } catch {
         /* href inválido */
       }
@@ -746,17 +1022,29 @@ export function extraerRecursosNext(html, origenPortal) {
   return [...vistos.values()];
 }
 
-/** Une listas de rutas sin duplicados, "/" primero, hasta `max`. */
-export function planificarRutas(listas, max = MAX_RUTAS_POR_DEFECTO) {
-  const out = ['/'];
+/**
+ * Une listas de rutas sin duplicados, "/" primero, hasta `max`. Lineal: un
+ * Set deduplica y, alcanzado `max`, solo se cuentan las demás candidatas.
+ * Devuelve { rutas, total } (total = rutas de página distintas encontradas).
+ */
+export function planificarRutasConTotal(listas, max = MAX_RUTAS_POR_DEFECTO) {
+  const limite = Math.max(1, max);
+  const vistas = new Set(['/']);
+  const rutas = ['/'];
   for (const lista of listas) {
     for (const r of lista) {
       const n = normalizarRuta(r);
-      if (!esRutaDePagina(n)) continue;
-      if (!out.includes(n)) out.push(n);
+      if (vistas.has(n) || !esRutaDePagina(n)) continue;
+      vistas.add(n);
+      if (rutas.length < limite) rutas.push(n);
     }
   }
-  return out.slice(0, Math.max(1, max));
+  return { rutas: rutas.slice(0, limite), total: vistas.size };
+}
+
+/** Une listas de rutas sin duplicados, "/" primero, hasta `max`. */
+export function planificarRutas(listas, max = MAX_RUTAS_POR_DEFECTO) {
+  return planificarRutasConTotal(listas, max).rutas;
 }
 
 // ---------------------------------------------------------------------------
@@ -794,27 +1082,65 @@ function describirError(e) {
   return [...new Set(partes)].join(': ') || String(e);
 }
 
-async function unaPeticion(url, fetchImpl, timeout) {
+async function descartarCuerpo(res) {
+  try {
+    await res.body?.cancel?.();
+  } catch {
+    /* sin cuerpo */
+  }
+}
+
+/**
+ * Una petición GET con timeout (AbortController, para toda la cadena de
+ * redirecciones). Las redirecciones se siguen a mano (redirect: 'manual') y
+ * solo si `permitirHost(url)` las acepta; si no, se devuelve
+ * { redireccion: destino } sin pedir nada al otro host.
+ */
+async function unaPeticion(url, fetchImpl, timeout, permitirHost) {
   const ctl = new AbortController();
   const reloj = setTimeout(() => ctl.abort(), timeout);
+  let actual = url;
   try {
-    const res = await fetchImpl(url, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: ctl.signal,
-      headers: { 'user-agent': AGENTE, accept: '*/*' },
-    });
-    const texto = await res.text();
-    return {
-      ok: res.ok,
-      status: res.status,
-      texto,
-      url: res.url || url,
-      tipo: res.headers?.get?.('content-type') ?? '',
-    };
+    for (let salto = 0; ; salto++) {
+      const res = await fetchImpl(actual, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: ctl.signal,
+        headers: { 'user-agent': AGENTE, accept: '*/*' },
+      });
+      const location = res.status >= 300 && res.status < 400 ? res.headers?.get?.('location') : null;
+      if (location) {
+        await descartarCuerpo(res);
+        let destino;
+        try {
+          destino = new URL(location, actual);
+        } catch {
+          return { ok: false, status: res.status, error: `redirección inválida (Location: ${location})`, url: actual };
+        }
+        if (destino.protocol !== 'http:' && destino.protocol !== 'https:') {
+          return { ok: false, status: res.status, error: `redirección a ${destino.href}`, url: actual };
+        }
+        if (permitirHost && !permitirHost(destino)) {
+          return { ok: false, status: res.status, redireccion: destino.href, url: actual };
+        }
+        if (salto >= MAX_REDIRECCIONES) {
+          return { ok: false, status: res.status, error: `más de ${MAX_REDIRECCIONES} redirecciones`, url: actual };
+        }
+        actual = destino.href;
+        continue;
+      }
+      const texto = await res.text();
+      return {
+        ok: res.ok,
+        status: res.status,
+        texto,
+        url: actual,
+        tipo: res.headers?.get?.('content-type') ?? '',
+      };
+    }
   } catch (e) {
     const error = ctl.signal.aborted ? `tiempo agotado (${timeout} ms)` : describirError(e);
-    return { ok: false, status: 0, error, url };
+    return { ok: false, status: 0, error, url: actual };
   } finally {
     clearTimeout(reloj);
   }
@@ -822,7 +1148,9 @@ async function unaPeticion(url, fetchImpl, timeout) {
 
 /**
  * GET con timeout (AbortController) y reintento ante error de red, tiempo
- * agotado, 5xx o 429. Nunca lanza: devuelve { ok, status, texto?, error? }.
+ * agotado, 5xx o 429. Nunca lanza: devuelve { ok, status, texto?, error?,
+ * redireccion? }. Con `permitirHost` (función que recibe un URL) solo se
+ * siguen las redirecciones a hosts aceptados.
  */
 export async function obtener(url, opciones = {}) {
   const {
@@ -831,19 +1159,48 @@ export async function obtener(url, opciones = {}) {
     reintentos = REINTENTOS,
     esperaReintento = ESPERA_REINTENTO_MS,
     limitador = (fn) => fn(),
+    permitirHost = null,
   } = opciones;
   let r;
   let intentos = 0;
   for (let intento = 0; intento <= reintentos; intento++) {
     if (intento > 0) await dormir(esperaReintento);
     intentos++;
-    r = await limitador(() => unaPeticion(url, fetchImpl, timeout));
+    r = await limitador(() => unaPeticion(url, fetchImpl, timeout, permitirHost));
     const reintentable = r.status === 0 || r.status >= 500 || r.status === 429;
     if (!reintentable) break;
   }
   r.intentos = intentos;
   return r;
 }
+
+/**
+ * Hosts que cuentan como "el portal": el de --portal y su variante con/sin
+ * "www." (con el mismo puerto), más el dominio registrado en la API y su
+ * variante "www." (por nombre de host). Devuelve una función URL -> boolean.
+ */
+export function crearPermisoHosts(origenes, dominio = null) {
+  const exactos = new Set();
+  const nombres = new Set();
+  const conWww = (h) => (h.startsWith('www.') ? [h, h.slice(4)] : [h, `www.${h}`]);
+  for (const o of [origenes].flat()) {
+    if (!o) continue;
+    const u = new URL(o);
+    for (const h of conWww(u.hostname)) exactos.add(u.port ? `${h}:${u.port}` : h);
+  }
+  const d = dominioBase(dominio);
+  if (d) for (const h of conWww(d)) nombres.add(h);
+  const permitir = (u) => exactos.has(u.host) || nombres.has(u.hostname);
+  permitir.agregar = (o) => {
+    const u = new URL(o);
+    for (const h of conWww(u.hostname)) exactos.add(u.port ? `${h}:${u.port}` : h);
+  };
+  permitir.hosts = () => [...exactos, ...nombres];
+  return permitir;
+}
+
+/** true si el status es "no existe" (se reporta como aviso, no como error). */
+const esNoExiste = (status) => status === 404 || status === 410;
 
 // ---------------------------------------------------------------------------
 // Barrido
@@ -886,9 +1243,27 @@ export function calcularCodigo(resultado) {
   return CODIGO.LIMPIO;
 }
 
+/** URL de un sitemap hijo con el host del portal (conserva la query: /sitemap.xml?p=2). */
+function urlSitemapHijo(loc, origenPortal) {
+  let u;
+  try {
+    u = new URL(String(loc).trim(), origenPortal);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  const base = new URL(origenPortal);
+  const clave = normalizarRuta(u.pathname) + u.search;
+  return { url: base.origin + clave, clave, hostOriginal: u.host, reescrito: u.host !== base.host };
+}
+
 /**
  * Ejecuta el barrido completo. Lanza ErrorBarrido si no se puede consultar la
- * API o descargar la portada. Los demás fallos quedan en `errores`.
+ * API o descargar la portada (o si la portada redirige fuera del portal). Los
+ * demás fallos quedan en `errores` (código 3 si no hay restos): error de red,
+ * tiempo agotado, 5xx o 429 tras el reintento, y cualquier otro status que no
+ * sea 2xx, 404 o 410. Un 404/410 y una redirección a otro host quedan como
+ * aviso (la URL de destino se revisa como texto, sin pedirla).
  */
 export async function ejecutarBarrido(op, deps = {}) {
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
@@ -896,24 +1271,32 @@ export async function ejecutarBarrido(op, deps = {}) {
     throw new ErrorBarrido('Este Node no tiene fetch global; usa Node >= 18.');
   }
   const limitador = crearLimitador(CONCURRENCIA_MAXIMA);
-  const get = (url) =>
+  const get = (url, permitirHost = null) =>
     obtener(url, {
       fetchImpl,
       timeout: op.timeout ?? TIMEOUT_POR_DEFECTO,
       esperaReintento: deps.esperaReintento ?? ESPERA_REINTENTO_MS,
       limitador,
+      permitirHost,
     });
-  const origen = new URL(op.portal).origin;
+  const origenPedido = new URL(op.portal).origin;
+  let origen = origenPedido;
   const errores = [];
   const avisosGenerales = [];
+  const documentos = []; // { archivo, tipo, texto }
+  const falla = (r) =>
+    r.redireccion ? `redirige a otro host (${r.redireccion})` : r.error ?? `HTTP ${r.status}`;
+  const registrarRedireccion = (descripcion, archivo, r) => {
+    avisosGenerales.push(`${descripcion} redirige a ${r.redireccion} (otro host); no se revisó su contenido.`);
+    // La URL de destino sí se revisa como texto (p. ej. el dominio de otro municipio).
+    documentos.push({ archivo: `${archivo} (redirección)`, tipo: 'url', texto: r.redireccion });
+  };
 
   // 1. API de municipios.
   const urlApi = `${String(op.api ?? API_POR_DEFECTO).replace(/\/+$/, '')}/api/municipios`;
   const rApi = await get(urlApi);
   if (!rApi.ok) {
-    throw new ErrorBarrido(
-      `No se pudo consultar la API de municipios (${urlApi}): ${rApi.error ?? `HTTP ${rApi.status}`}.`,
-    );
+    throw new ErrorBarrido(`No se pudo consultar la API de municipios (${urlApi}): ${falla(rApi)}.`);
   }
   let municipios;
   try {
@@ -932,44 +1315,98 @@ export async function ejecutarBarrido(op, deps = {}) {
     permitir: op.permitir ?? [],
   });
 
-  // 2. Portada, sitemap y robots.
+  // 2. Portada, sitemap y robots. Solo se siguen redirecciones dentro del
+  //    portal (su host, con o sin www, y el dominio registrado en la API).
+  const permitir = crearPermisoHosts(origen, conf.propio.dominio);
   const [rHome, rSitemap, rRobots] = await Promise.all([
-    get(`${origen}/`),
-    get(`${origen}/sitemap.xml`),
-    get(`${origen}/robots.txt`),
+    get(`${origen}/`, permitir),
+    get(`${origen}/sitemap.xml`, permitir),
+    get(`${origen}/robots.txt`, permitir),
   ]);
-  if (!rHome.ok) {
+  if (rHome.redireccion) {
     throw new ErrorBarrido(
-      `No se pudo descargar la portada ${origen}/: ${rHome.error ?? `HTTP ${rHome.status}`}.`,
+      `La portada ${origen}/ redirige a ${rHome.redireccion}, que no es el host del portal ni el ` +
+        `dominio registrado en la API para "${conf.propio.slug}". No se revisó. Si ese es el portal, ` +
+        `vuelve a correr con --portal ${new URL(rHome.redireccion).origin}`,
     );
   }
+  if (!rHome.ok) {
+    throw new ErrorBarrido(`No se pudo descargar la portada ${origen}/: ${falla(rHome)}.`);
+  }
+  const origenFinal = new URL(rHome.url).origin;
+  if (origenFinal !== origen) {
+    avisosGenerales.push(
+      `La portada ${origen}/ redirige a ${rHome.url} (dominio del portal); el barrido se hizo en ${new URL(origenFinal).host}.`,
+    );
+    origen = origenFinal;
+    permitir.agregar(origen);
+  }
 
-  const documentos = []; // { archivo, tipo, texto }
   const hostsReescritos = new Set();
-  let locsRutas = [];
+  const locsRutas = [];
   const sitemapInfo = { estado: rSitemap.status, rutas: 0, hijos: [] };
-  if (rSitemap.ok && /<(?:urlset|sitemapindex)[\s>]/i.test(rSitemap.texto)) {
+  const esSitemap = (r) => r.ok && /<(?:urlset|sitemapindex)[\s>]/i.test(r.texto ?? '');
+  if (rSitemap.redireccion) {
+    registrarRedireccion('/sitemap.xml', '/sitemap.xml', rSitemap);
+  } else if (esSitemap(rSitemap)) {
     documentos.push({ archivo: '/sitemap.xml', tipo: 'xml', texto: rSitemap.texto });
     const { tipo, locs } = extraerLocsSitemap(rSitemap.texto);
-    let urls = locs;
-    if (tipo === 'indice') {
-      urls = [];
-      const hijos = locs
-        .map((l) => reescribirHost(l, origen))
-        .filter(Boolean)
-        .slice(0, MAX_SITEMAPS_HIJOS);
-      const respuestas = await Promise.all(hijos.map((h) => get(h.url)));
-      hijos.forEach((h, i) => {
-        if (h.reescrito) hostsReescritos.add(h.hostOriginal);
-        const r = respuestas[i];
-        sitemapInfo.hijos.push({ ruta: h.ruta, estado: r.status });
-        if (r.ok) {
-          documentos.push({ archivo: h.ruta, tipo: 'xml', texto: r.texto });
-          urls.push(...extraerLocsSitemap(r.texto).locs);
-        } else {
-          errores.push({ url: h.url, error: r.error ?? `HTTP ${r.status}` });
+    // Sin spread: un sitemap fuera de norma puede traer cientos de miles de <loc>.
+    const agregarTodos = (destino, origenLista) => {
+      for (const x of origenLista) destino.push(x);
+    };
+    const urls = [];
+    if (tipo !== 'indice') {
+      agregarTodos(urls, locs);
+    } else {
+      // Índice de sitemaps: hasta MAX_NIVELES_SITEMAP niveles y
+      // MAX_SITEMAPS_HIJOS descargas en total; lo que quede fuera se avisa.
+      let cola = locs;
+      let pedidos = 0;
+      let omitidos = 0;
+      const vistos = new Set(['/sitemap.xml']);
+      for (let nivel = 1; nivel <= MAX_NIVELES_SITEMAP && cola.length > 0; nivel++) {
+        const hijos = [];
+        for (const loc of cola) {
+          const h = urlSitemapHijo(loc, origen);
+          if (!h || vistos.has(h.clave)) continue;
+          vistos.add(h.clave);
+          hijos.push(h);
         }
-      });
+        const lote = hijos.slice(0, Math.max(0, MAX_SITEMAPS_HIJOS - pedidos));
+        omitidos += hijos.length - lote.length;
+        pedidos += lote.length;
+        const respuestas = await Promise.all(lote.map((h) => get(h.url, permitir)));
+        cola = [];
+        lote.forEach((h, i) => {
+          if (h.reescrito) hostsReescritos.add(h.hostOriginal);
+          const r = respuestas[i];
+          sitemapInfo.hijos.push({ ruta: h.clave, estado: r.status });
+          if (r.redireccion) {
+            registrarRedireccion(`El sitemap ${h.clave}`, h.clave, r);
+          } else if (esSitemap(r)) {
+            documentos.push({ archivo: h.clave, tipo: 'xml', texto: r.texto });
+            const sub = extraerLocsSitemap(r.texto);
+            if (sub.tipo !== 'indice') agregarTodos(urls, sub.locs);
+            else if (nivel < MAX_NIVELES_SITEMAP) agregarTodos(cola, sub.locs);
+            else {
+              avisosGenerales.push(
+                `El sitemap ${h.clave} es otro índice (más de ${MAX_NIVELES_SITEMAP} niveles); sus sitemaps no se siguieron.`,
+              );
+            }
+          } else if (r.ok || esNoExiste(r.status)) {
+            avisosGenerales.push(`El sitemap ${h.clave} del índice no existe o no es un sitemap (HTTP ${r.status}).`);
+          } else {
+            errores.push({ url: h.url, error: `${falla(r)}; las rutas de ese sitemap no se revisaron` });
+          }
+        });
+      }
+      if (omitidos > 0) {
+        avisosGenerales.push(
+          `El índice de sitemaps enumera ${pedidos + omitidos} sitemaps; solo se descargaron ${pedidos} ` +
+            `(límite ${MAX_SITEMAPS_HIJOS}). Las rutas de los otros ${omitidos} no se consideraron.`,
+        );
+      }
     }
     for (const loc of urls) {
       const r = reescribirHost(loc, origen);
@@ -978,15 +1415,20 @@ export async function ejecutarBarrido(op, deps = {}) {
       locsRutas.push(r.ruta);
     }
     sitemapInfo.rutas = locsRutas.length;
-  } else if (rSitemap.status === 0) {
-    errores.push({ url: `${origen}/sitemap.xml`, error: rSitemap.error });
-  } else {
+  } else if (rSitemap.ok || esNoExiste(rSitemap.status)) {
     avisosGenerales.push(`No hay sitemap.xml válido (HTTP ${rSitemap.status}); solo se usan los enlaces de la portada.`);
+  } else {
+    errores.push({
+      url: `${origenPedido}/sitemap.xml`,
+      error: `${falla(rSitemap)}; las rutas que solo están en el sitemap no se revisaron`,
+    });
   }
-  if (rRobots.ok && !/<html[\s>]/i.test(rRobots.texto)) {
-    documentos.push({ archivo: '/robots.txt', tipo: 'txt', texto: rRobots.texto });
-  } else if (rRobots.status === 0) {
-    errores.push({ url: `${origen}/robots.txt`, error: rRobots.error });
+  if (rRobots.redireccion) {
+    registrarRedireccion('/robots.txt', '/robots.txt', rRobots);
+  } else if (rRobots.ok) {
+    if (!/<html[\s>]/i.test(rRobots.texto)) documentos.push({ archivo: '/robots.txt', tipo: 'txt', texto: rRobots.texto });
+  } else if (!esNoExiste(rRobots.status)) {
+    errores.push({ url: `${origenPedido}/robots.txt`, error: falla(rRobots) });
   }
   if (hostsReescritos.size > 0) {
     avisosGenerales.push(
@@ -995,27 +1437,39 @@ export async function ejecutarBarrido(op, deps = {}) {
   }
 
   // 3. Rutas: "/" + sitemap + enlaces internos de la portada.
-  const enlaces = extraerEnlacesInternos(rHome.texto, origen);
+  const enlaces = extraerEnlacesInternos(rHome.texto, origen, permitir.hosts());
   const max = op.maxRutas ?? MAX_RUTAS_POR_DEFECTO;
-  const candidatas = planificarRutas([locsRutas, enlaces], Number.MAX_SAFE_INTEGER);
-  const rutas = candidatas.slice(0, max);
-  if (candidatas.length > rutas.length) {
-    avisosGenerales.push(
-      `Se revisaron ${rutas.length} de ${candidatas.length} rutas (límite --max-rutas ${max}).`,
-    );
+  const { rutas, total } = planificarRutasConTotal([locsRutas, enlaces], max);
+  if (total > rutas.length) {
+    avisosGenerales.push(`Se revisaron ${rutas.length} de ${total} rutas (límite --max-rutas ${max}).`);
   }
   const infoRutas = [];
   const respuestasRutas = await Promise.all(
-    rutas.map((ruta) => (ruta === '/' ? rHome : get(origen + ruta))),
+    rutas.map((ruta) => (ruta === '/' ? rHome : get(origen + ruta, permitir))),
   );
   rutas.forEach((ruta, i) => {
     const r = respuestasRutas[i];
-    infoRutas.push({ ruta, estado: r.status, bytes: r.texto?.length ?? 0 });
+    const info = { ruta, estado: r.status, bytes: r.texto?.length ?? 0 };
+    if (r.redireccion) info.redireccion = r.redireccion;
+    infoRutas.push(info);
+    if (r.redireccion) {
+      registrarRedireccion(`La ruta ${ruta}`, ruta, r);
+      return;
+    }
     if (r.status === 0) {
       errores.push({ url: origen + ruta, error: r.error });
       return;
     }
-    if (!r.ok) avisosGenerales.push(`La ruta ${ruta} respondió HTTP ${r.status} (se revisó igual su HTML).`);
+    if (!r.ok) {
+      if (esNoExiste(r.status)) {
+        avisosGenerales.push(`La ruta ${ruta} respondió HTTP ${r.status} (se revisó igual su HTML).`);
+      } else {
+        errores.push({
+          url: origen + ruta,
+          error: `${falla(r)} tras ${plural(r.intentos ?? 1, 'intento', 'intentos')}; no se revisó el contenido real de la ruta`,
+        });
+      }
+    }
     documentos.push({ archivo: ruta, tipo: 'html', texto: r.texto ?? '' });
   });
 
@@ -1028,13 +1482,13 @@ export async function ejecutarBarrido(op, deps = {}) {
     }
   }
   const listaRecursos = [...recursos.values()];
-  const respuestasRecursos = await Promise.all(listaRecursos.map((rec) => get(rec.url)));
+  const respuestasRecursos = await Promise.all(listaRecursos.map((rec) => get(rec.url, permitir)));
   const infoRecursos = [];
   listaRecursos.forEach((rec, i) => {
     const r = respuestasRecursos[i];
     infoRecursos.push({ ruta: rec.ruta, estado: r.status, bytes: r.texto?.length ?? 0 });
     if (!r.ok) {
-      errores.push({ url: rec.url, error: r.error ?? `HTTP ${r.status}` });
+      errores.push({ url: rec.url, error: falla(r) });
       return;
     }
     documentos.push({ archivo: rec.ruta, tipo: rec.ruta.endsWith('.css') ? 'css' : 'js', texto: r.texto });
@@ -1059,6 +1513,7 @@ export async function ejecutarBarrido(op, deps = {}) {
 
   const resultado = {
     portal: origen,
+    portalPedido: origenPedido,
     slug: conf.propio.slug,
     nombre: conf.propio.nombre,
     fuenteNombre: conf.propio.fuenteNombre,
@@ -1154,7 +1609,11 @@ export function formatearReporte(r, { maxContextos = 5 } = {}) {
   L.push(
     `  Municipio: ${r.nombre} (slug ${r.slug}; nombre tomado de ${r.fuenteNombre === 'api' ? 'la API' : '--nombre, no está en la API'})`,
   );
-  L.push(`  Rutas (${r.rutas.length}): ${r.rutas.map((x) => (x.estado >= 200 && x.estado < 300 ? x.ruta : `${x.ruta} [${x.estado || 'error'}]`)).join(', ')}`);
+  const rutaConEstado = (x) => {
+    if (x.redireccion) return `${x.ruta} [→ ${new URL(x.redireccion).host}]`;
+    return x.estado >= 200 && x.estado < 300 ? x.ruta : `${x.ruta} [${x.estado || 'error'}]`;
+  };
+  L.push(`  Rutas (${r.rutas.length}): ${r.rutas.map(rutaConEstado).join(', ')}`);
   L.push(`  Recursos /_next/static: ${js} JS, ${css} CSS${r.otros.length ? `; además ${r.otros.join(', ')}` : ''}`);
   L.push(...envolver(`  Términos buscados (${r.terminos.length}): `, r.terminos.map((t) => t.termino), '      '));
   if (r.permitidos.length) L.push(`  Permitidos (--permitir): ${r.permitidos.join(', ')}`);
@@ -1220,7 +1679,7 @@ Opciones:
   --portal URL       Portal a revisar (p. ej. https://villapesqueira.vercel.app). Obligatorio.
   --slug SLUG        Slug del municipio del portal (p. ej. villapesqueira). Obligatorio.
   --nombre NOMBRE    Nombre del municipio. Obligatorio si el slug aún no está en la API;
-                     si está, se toma de ahí.
+                     si está, se toma de ahí (y un --nombre que no coincide es un error).
   --extra LISTA      Términos adicionales separados por coma
                      (p. ej. "1639,río sonora,misión jesuita").
   --permitir LISTA   Términos o frases permitidos, separados por coma. Un término que
@@ -1228,7 +1687,8 @@ Opciones:
                      apariciones contenidas en ella (p. ej. "colindante con sahuaripa").
   --max-rutas N      Máximo de rutas HTML a revisar (por defecto ${MAX_RUTAS_POR_DEFECTO}).
   --api URL          API de municipios (por defecto ${API_POR_DEFECTO}).
-  --timeout MS       Tiempo máximo por petición (por defecto ${TIMEOUT_POR_DEFECTO}); 1 reintento.
+  --timeout MS       Tiempo máximo por petición (por defecto ${TIMEOUT_POR_DEFECTO}, máximo ${TIMEOUT_MAXIMO});
+                     1 reintento.
   --json             Salida en JSON para máquinas.
   --ayuda, -h        Muestra esta ayuda.
 
@@ -1236,10 +1696,15 @@ Qué revisa:
   "/" + las <loc> de /sitemap.xml (con el host reescrito al de --portal) + los enlaces
   internos de la portada; el HTML de cada ruta, /sitemap.xml, /robots.txt y todos los
   /_next/static/**.js y .css que referencian. Solo hace peticiones GET (máx. ${CONCURRENCIA_MAXIMA} a la vez).
+  Solo sigue redirecciones dentro del portal (su host, con o sin www, y el dominio
+  registrado en la API); una ruta que redirige a otro host no se descarga: se avisa
+  y se revisa solo la URL de destino.
 
   Restos: nombres, slugs y dominios de los municipios de la API (menos el propio),
   un listado fijo de municipios de Sonora usados como molde y --extra. Se ignoran
-  mayúsculas, acentos, escapes \\uXXXX y entidades HTML, con límites de palabra.
+  mayúsculas, acentos, escapes \\uXXXX, entidades HTML y %XX de URLs, con límites de
+  palabra (también en camelCase: escudoSahuaripa.png). Un nombre de varias palabras
+  se detecta aunque lo partan etiquetas o el marcado de React (Villa <span>Hidalgo</span>).
   Avisos: correos, teléfonos mexicanos y URLs de Cloudinary con cms-municipal/<otro-slug>/.
   Un correo que lleva pegado el nombre de otro municipio (transparenciasahuaripa@...)
   se marca con una pista; los avisos no cambian el código de salida.
@@ -1250,7 +1715,8 @@ Qué revisa:
 Códigos de salida:
   0  sin restos de otros municipios (puede haber avisos)
   1  hay posibles restos
-  3  error de red o de argumentos (incluye barrido incompleto sin restos)
+  3  error de red o de argumentos, o barrido incompleto sin restos (una ruta, el
+     sitemap o un recurso respondió 5xx, 429 u otro error que no sea 404/410)
 `;
 
 const OPCIONES_CLI = Object.freeze({
@@ -1329,10 +1795,11 @@ export function parsearArgumentos(argv) {
   const slug = valores.slug.trim().toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) throw new ErrorBarrido(`--slug inválido: ${valores.slug}`);
 
-  const entero = (nombre, valor, def) => {
+  const entero = (nombre, valor, def, tope = Number.MAX_SAFE_INTEGER) => {
     if (valor === undefined) return def;
     const n = Number(valor);
     if (!Number.isInteger(n) || n <= 0) throw new ErrorBarrido(`--${nombre} debe ser un entero positivo (recibido: ${valor}).`);
+    if (n > tope) throw new ErrorBarrido(`--${nombre} debe ser como máximo ${tope} (recibido: ${valor}).`);
     return n;
   };
   let api = API_POR_DEFECTO;
@@ -1353,7 +1820,8 @@ export function parsearArgumentos(argv) {
     extra: separarLista(valores.extra),
     permitir: separarLista(valores.permitir),
     maxRutas: entero('max-rutas', valores['max-rutas'], MAX_RUTAS_POR_DEFECTO),
-    timeout: entero('timeout', valores.timeout, TIMEOUT_POR_DEFECTO),
+    // setTimeout no admite más de 2^31-1 ms (con más, Node aborta en 1 ms).
+    timeout: entero('timeout', valores.timeout, TIMEOUT_POR_DEFECTO, TIMEOUT_MAXIMO),
     api,
   };
 }

@@ -281,11 +281,14 @@ export function contieneTexto(html, buscado, variantes = variantesHtml(html)) {
 }
 
 /**
- * Pasa el texto a minúsculas (y, si se pide, sin acentos) carácter a carácter y guarda,
- * para cada posición del resultado, la posición de origen: así se puede recortar del
- * texto original el fragmento que coincidió.
+ * Pasa el texto a minúsculas (y, si se pide, sin acentos). Si la longitud cambia, lo hace
+ * carácter a carácter y guarda en `mapa`, para cada posición del resultado, la posición de
+ * origen: así se puede recortar del texto original el fragmento que coincidió. Si no cambia
+ * (lo normal), las posiciones coinciden y `mapa` es null.
  */
 function plegarConMapa(texto, sinAcentos) {
+  const directo = sinAcentos ? quitarAcentos(texto.toLowerCase()) : texto.toLowerCase();
+  if (directo.length === texto.length) return { salida: directo, mapa: null };
   let salida = '';
   const mapa = [];
   let posicion = 0;
@@ -300,6 +303,26 @@ function plegarConMapa(texto, sinAcentos) {
   return { salida, mapa };
 }
 
+const esLetraODigito = (caracter) => caracter !== undefined && /[\p{L}\p{N}]/u.test(caracter);
+
+/**
+ * indexOf que exige límite de palabra en los extremos de la aguja que son letra o dígito
+ * ("carbo" no vale dentro de "carbotransparencia"). Se usa solo en las búsquedas
+ * aproximadas, que necesitan más evidencia que la exacta.
+ */
+function indiceConLimites(pajar, aguja) {
+  const alInicio = esLetraODigito(aguja[0]);
+  const alFinal = esLetraODigito(aguja[aguja.length - 1]);
+  for (let desde = 0; ;) {
+    const indice = pajar.indexOf(aguja, desde);
+    if (indice === -1) return -1;
+    if ((!alInicio || !esLetraODigito(pajar[indice - 1])) && (!alFinal || !esLetraODigito(pajar[indice + aguja.length]))) {
+      return indice;
+    }
+    desde = indice + 1;
+  }
+}
+
 /**
  * Prepara la búsqueda de textos en un HTML y devuelve buscar(texto) =>
  * { coincidencia, fragmento }, donde coincidencia es:
@@ -307,7 +330,8 @@ function plegarConMapa(texto, sinAcentos) {
  *   'mayusculas' solo ignorando mayúsculas (típico de text-transform: capitalize/uppercase);
  *   'acentos'    solo ignorando también los acentos;
  *   null         no aparece.
- * `fragmento` es el texto tal como está en el HTML (normalizado).
+ * `fragmento` es el texto tal como está en el HTML (normalizado). Las coincidencias
+ * aproximadas exigen límite de palabra y prefieren el texto visible (sin etiquetas).
  */
 export function crearBuscadorTexto(html) {
   const variantes = variantesHtml(html);
@@ -323,11 +347,16 @@ export function crearBuscadorTexto(html) {
       const agujaPlegada = plegarConMapa(aguja, modo === 'acentos').salida;
       if (!agujaPlegada) continue;
       const lista = plegar(modo);
-      for (let i = 0; i < lista.length; i++) {
-        const indice = lista[i].salida.indexOf(agujaPlegada);
+      // Primero el texto visible (variantes sin etiquetas): el fragmento que se muestra es el
+      // que el CSS transforma, no un alt="" ni el payload JSON de Next.
+      for (const i of [1, 2, 0, 3]) {
+        if (!lista[i]) continue;
+        const { salida, mapa } = lista[i];
+        const indice = indiceConLimites(salida, agujaPlegada);
         if (indice === -1) continue;
-        const { mapa } = lista[i];
-        return { coincidencia: modo, fragmento: variantes[i].slice(mapa[indice], mapa[indice + agujaPlegada.length]) };
+        const fin = indice + agujaPlegada.length;
+        const fragmento = mapa ? variantes[i].slice(mapa[indice], mapa[fin]) : variantes[i].slice(indice, fin);
+        return { coincidencia: modo, fragmento };
       }
     }
     return { coincidencia: null, fragmento: null };
@@ -608,23 +637,32 @@ async function comprobarEscudo(cliente, municipio, api) {
     `${url} -> ${respuesta.status}, content-type "${tipo || '(ninguno)'}" vía ${via}; se esperaba 200 image/*`, datos)];
 }
 
-async function comprobarListado(cliente, api, slug, id) {
-  const s = 'listado';
-  const url = urlApi(api);
+/** datos de una comprobación que falló por red/timeout contra la API (no por contenido): cuenta para el código 3. */
+const errorRedApi = () => ({ errorRed: true });
+
+/**
+ * GET /api/municipios. Devuelve { lista } o { error, errorRed } (errorRed: la API no respondió).
+ */
+async function leerListado(cliente, api) {
   let respuesta;
   try {
-    respuesta = await cliente.pedir(url);
+    respuesta = await cliente.pedir(urlApi(api));
   } catch (err) {
-    return [comprobacion(s, 'aparece 1 vez', ESTADOS.FALLA, `GET /api/municipios: ${err.message}`)];
+    return { error: `GET /api/municipios: ${err.message}`, errorRed: err instanceof ErrorRed };
   }
-  if (respuesta.status !== 200) {
-    return [comprobacion(s, 'aparece 1 vez', ESTADOS.FALLA, `GET /api/municipios -> ${describirRespuesta(respuesta)}`)];
-  }
+  if (respuesta.status !== 200) return { error: `GET /api/municipios -> ${describirRespuesta(respuesta)}` };
   const json = parsearJson(respuesta.texto);
-  if (!json.ok || !Array.isArray(json.valor)) {
-    return [comprobacion(s, 'aparece 1 vez', ESTADOS.FALLA, 'GET /api/municipios no devolvió un array JSON')];
+  if (!json.ok || !Array.isArray(json.valor)) return { error: 'GET /api/municipios no devolvió un array JSON' };
+  return { lista: json.valor };
+}
+
+async function comprobarListado(cliente, api, slug, id) {
+  const s = 'listado';
+  const listado = await leerListado(cliente, api);
+  if (!listado.lista) {
+    return [comprobacion(s, 'aparece 1 vez', ESTADOS.FALLA, listado.error, listado.errorRed ? errorRedApi() : undefined)];
   }
-  const lista = json.valor;
+  const { lista } = listado;
   const coincidencias = lista.filter((m) => esObjetoPlano(m) && m.slug === slug);
   const datos = { total: lista.length, apariciones: coincidencias.length, ids: coincidencias.map((m) => m.id) };
   const resultado = [];
@@ -641,11 +679,10 @@ async function comprobarListado(cliente, api, slug, id) {
     resultado.push(comprobacion(s, 'aparece 1 vez', ESTADOS.OK,
       `1 vez con el mismo id (${plural(lista.length, 'municipio')} en total)`, datos));
   }
-  const parecidos = lista.filter((m) => esObjetoPlano(m) && typeof m.slug === 'string'
-    && m.slug !== slug && m.slug.toLowerCase() === slug.toLowerCase());
+  const parecidos = slugsParecidos(lista, slug);
   if (parecidos.length) {
     resultado.push(comprobacion(s, 'slug parecido', ESTADOS.AVISO,
-      `hay otro municipio con slug que solo difiere en mayúsculas: ${listaCorta(parecidos.map((m) => m.slug))}`));
+      `hay otro municipio con slug que solo difiere en mayúsculas, acentos o guiones: ${listaCorta(parecidos)}`));
   }
   return resultado;
 }
@@ -657,7 +694,8 @@ async function comprobarSubruta(cliente, api, slug, id, subruta) {
   try {
     respuesta = await cliente.pedir(url);
   } catch (err) {
-    return [comprobacion(s, subruta, ESTADOS.FALLA, `${rutaVisible(url, api)}: ${err.message}`)];
+    return [comprobacion(s, subruta, ESTADOS.FALLA, `${rutaVisible(url, api)}: ${err.message}`,
+      err instanceof ErrorRed ? errorRedApi() : undefined)];
   }
   if (respuesta.status !== 200) {
     return [comprobacion(s, subruta, ESTADOS.FALLA, `${rutaVisible(url, api)} -> ${describirRespuesta(respuesta)}`)];
@@ -705,7 +743,9 @@ async function comprobarDetalleNoticia(cliente, api, slug, id, slugNoticia) {
   try {
     respuesta = await cliente.pedir(url);
   } catch (err) {
-    return comprobacion(s, clave, ESTADOS.AVISO, `no se pudo revisar la noticia de muestra "${slugNoticia}": ${err.message}`);
+    // Sin respuesta no se pudo comprobar el aislamiento: cuenta como error de red de la API (código 3).
+    return comprobacion(s, clave, ESTADOS.FALLA, `no se pudo revisar la noticia de muestra "${slugNoticia}": ${err.message}`,
+      err instanceof ErrorRed ? errorRedApi() : undefined);
   }
   if (respuesta.status !== 200) {
     return comprobacion(s, clave, ESTADOS.AVISO,
@@ -726,71 +766,95 @@ async function comprobarDetalleNoticia(cliente, api, slug, id, slugNoticia) {
   return comprobacion(s, clave, ESTADOS.OK, `muestra "${slugNoticia}": municipioId correcto`);
 }
 
+/** Comprobación de un texto esperado (--esperar-texto) en la portada. */
+function comprobarTextoEsperado(buscar, texto, cabeceras) {
+  const s = 'portal';
+  const clave = 'texto esperado';
+  const { coincidencia, fragmento } = buscar(texto);
+  const datos = { texto, coincidencia, ...(fragmento && coincidencia !== 'exacta' ? { enHtml: fragmento } : {}) };
+  if (coincidencia === 'exacta') return comprobacion(s, clave, ESTADOS.OK, `aparece "${texto}"`, datos);
+  if (coincidencia === 'mayusculas') {
+    // El HTML trae otras mayúsculas y el CSS (text-transform: capitalize/uppercase) las cambia al
+    // mostrarlo: reintentar no lo arregla, así que no se culpa a la caché.
+    return comprobacion(s, clave, ESTADOS.AVISO,
+      `"${texto}" solo aparece ignorando mayúsculas: en el HTML está "${fragmento}" (probable text-transform `
+      + 'de CSS, p. ej. capitalize, así que en pantalla puede verse igual); si lo que corregiste en el panel '
+      + `fueron las mayúsculas, espera la caché ISR (~${ISR_SEGUNDOS} s) y reintenta`, { ...datos, cabeceras });
+  }
+  if (coincidencia === 'acentos') {
+    return comprobacion(s, clave, ESTADOS.FALLA,
+      `"${texto}" solo aparece ignorando acentos: en el HTML está "${fragmento}"; revisa la ortografía `
+      + `(el CSS no cambia acentos). Si los corregiste en el panel, ${sugerenciaCache(cabeceras)}`, { ...datos, cabeceras });
+  }
+  return comprobacion(s, clave, ESTADOS.FALLA, `no aparece "${texto}"; ${sugerenciaCache(cabeceras)}`, { ...datos, cabeceras });
+}
+
 async function comprobarPortal(cliente, portal, { nombre, textos }) {
   const s = 'portal';
   const resultado = [];
+  const sinTextos = nombre || textos.length ? '; no se revisan los textos' : '';
 
-  const urlPortada = `${portal}/`;
+  const urlPortada = urlPortal(portal, '/');
   let portada = null;
   try {
     portada = await cliente.pedir(urlPortada, { aceptar: 'text/html' });
   } catch (err) {
-    resultado.push(comprobacion(s, 'portada /', ESTADOS.FALLA, `${urlPortada} inalcanzable: ${err.message}`));
+    resultado.push(comprobacion(s, 'portada /', ESTADOS.FALLA, `${urlPortada} inalcanzable: ${err.message}${sinTextos}`));
   }
   if (portada) {
     const cabeceras = cabecerasCache(portada.headers);
-    const redireccion = portada.redirigido ? ` (redirigido a ${portada.url})` : '';
-    const datos = { url: urlPortada, status: portada.status, cabeceras, urlFinal: portada.url };
-    if (portada.status === 200) {
-      resultado.push(comprobacion(s, 'portada /', ESTADOS.OK,
-        `200 en ${portada.ms} ms${redireccion} · ${describirCabeceras(cabeceras)}`, datos));
-      const variantes = variantesHtml(portada.texto);
-      if (nombre) {
-        resultado.push(contieneTexto(portada.texto, nombre, variantes)
-          ? comprobacion(s, 'nombre en HTML', ESTADOS.OK, `contiene "${nombre}"`)
-          : comprobacion(s, 'nombre en HTML', ESTADOS.AVISO,
-            `el HTML no contiene "${nombre}"; ¿caché ISR o portal de otro municipio? (${describirCabeceras(cabeceras)})`));
-      }
-      for (const texto of textos) {
-        resultado.push(contieneTexto(portada.texto, texto, variantes)
-          ? comprobacion(s, 'texto esperado', ESTADOS.OK, `aparece "${texto}"`)
-          : comprobacion(s, 'texto esperado', ESTADOS.FALLA,
-            `no aparece "${texto}"; ${sugerenciaCache(cabeceras)}`, { texto, cabeceras }));
-      }
-    } else {
+    const redireccion = clasificarRedireccion(urlPortada, portada.url);
+    const datos = { url: urlPortada, status: portada.status, cabeceras, urlFinal: portada.url, redireccion: redireccion.tipo };
+    if (portada.status !== 200) {
       resultado.push(comprobacion(s, 'portada /', ESTADOS.FALLA,
-        `${urlPortada} -> ${portada.status}${redireccion} · ${describirCabeceras(cabeceras)}`
-        + (nombre || textos.length ? '; no se revisan los textos' : ''), datos));
+        `${urlPortada} -> ${portada.status}${redireccion.nota} · ${describirCabeceras(cabeceras)}${sinTextos}`, datos));
+    } else if (redireccion.tipo === 'distinta') {
+      // Un 200 tras redirigir a otro host u otra ruta no es la portada pedida (p. ej. el
+      // dominio no está asignado a este portal y cae en una página genérica).
+      resultado.push(comprobacion(s, 'portada /', ESTADOS.FALLA,
+        `${urlPortada} redirige a otra página: ${portada.url} (200); ¿dominio no asignado a este portal o ruta `
+        + `movida? Si esa es la URL correcta, pásala en --portal${sinTextos}`, datos));
+    } else {
+      resultado.push(comprobacion(s, 'portada /', ESTADOS.OK,
+        `200 en ${portada.ms} ms${redireccion.nota} · ${describirCabeceras(cabeceras)}`, datos));
+      const buscar = crearBuscadorTexto(portada.texto);
+      if (nombre) {
+        const { coincidencia, fragmento } = buscar(nombre);
+        if (coincidencia === 'exacta') {
+          resultado.push(comprobacion(s, 'nombre en HTML', ESTADOS.OK, `contiene "${nombre}"`));
+        } else if (coincidencia === 'mayusculas') {
+          resultado.push(comprobacion(s, 'nombre en HTML', ESTADOS.OK,
+            `contiene "${nombre}" ignorando mayúsculas (en el HTML: "${fragmento}")`));
+        } else {
+          const pista = coincidencia === 'acentos' ? ` (solo ignorando acentos: "${fragmento}")` : '';
+          resultado.push(comprobacion(s, 'nombre en HTML', ESTADOS.AVISO,
+            `el HTML no contiene "${nombre}"${pista}; ¿caché ISR o portal de otro municipio? (${describirCabeceras(cabeceras)})`));
+        }
+      }
+      for (const texto of textos) resultado.push(comprobarTextoEsperado(buscar, texto, cabeceras));
     }
   }
 
-  const urlSevac = `${portal}/transparencia/sevac`;
+  const urlSevac = urlPortal(portal, '/transparencia/sevac');
   try {
     const sevac = await cliente.pedir(urlSevac, { aceptar: 'text/html', leerCuerpo: false });
     const cabeceras = cabecerasCache(sevac.headers);
-    const datos = { url: urlSevac, status: sevac.status, cabeceras };
-    resultado.push(sevac.status === 200
-      ? comprobacion(s, '/transparencia/sevac', ESTADOS.OK,
-        `200 en ${sevac.ms} ms (dinámica: refleja la API al instante) · ${describirCabeceras(cabeceras)}`, datos)
-      : comprobacion(s, '/transparencia/sevac', ESTADOS.FALLA, `${urlSevac} -> ${sevac.status}`, datos));
+    const redireccion = clasificarRedireccion(urlSevac, sevac.url);
+    const datos = { url: urlSevac, status: sevac.status, cabeceras, urlFinal: sevac.url, redireccion: redireccion.tipo };
+    if (sevac.status !== 200) {
+      resultado.push(comprobacion(s, '/transparencia/sevac', ESTADOS.FALLA,
+        `${urlSevac} -> ${sevac.status}${redireccion.nota}`, datos));
+    } else if (redireccion.tipo === 'distinta') {
+      resultado.push(comprobacion(s, '/transparencia/sevac', ESTADOS.FALLA,
+        `${urlSevac} redirige a otra página: ${sevac.url} (200); la página SEVAC no se sirve en esa ruta`, datos));
+    } else {
+      resultado.push(comprobacion(s, '/transparencia/sevac', ESTADOS.OK,
+        `200 en ${sevac.ms} ms${redireccion.nota} (dinámica: refleja la API al instante) · ${describirCabeceras(cabeceras)}`, datos));
+    }
   } catch (err) {
     resultado.push(comprobacion(s, '/transparencia/sevac', ESTADOS.FALLA, `${urlSevac} inalcanzable: ${err.message}`));
   }
   return resultado;
-}
-
-/** Con el municipio ausente, busca en el listado un slug que solo difiera en mayúsculas. */
-async function buscarSlugParecido(cliente, api, slug) {
-  try {
-    const respuesta = await cliente.pedir(urlApi(api));
-    const json = parsearJson(respuesta.texto);
-    if (respuesta.status !== 200 || !json.ok || !Array.isArray(json.valor)) return null;
-    const parecido = json.valor.find((m) => esObjetoPlano(m) && typeof m.slug === 'string'
-      && m.slug !== slug && m.slug.toLowerCase() === slug.toLowerCase());
-    return parecido ? parecido.slug : null;
-  } catch {
-    return null;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -835,7 +899,14 @@ export async function verificarAlta(opciones, { fetchImpl, esperaReintentoMs } =
 
   const terminar = (resultado, mensaje) => {
     informe.resumen = resumir(c);
-    if (!resultado) resultado = informe.resumen.falla ? 'FALLA' : 'OK';
+    const fallas = c.filter((x) => x.estado === ESTADOS.FALLA);
+    const deRed = fallas.filter((x) => x.datos?.errorRed);
+    if (!resultado) {
+      // Si todas las FALLAs son la API sin responder (red/timeout), no se sabe si el alta
+      // quedó mal: es un error de red (3), no una FALLA (1).
+      if (!fallas.length) resultado = 'OK';
+      else resultado = deRed.length === fallas.length ? 'ERROR' : 'FALLA';
+    }
     informe.resultado = resultado;
     informe.codigo = CODIGOS[resultado];
     if (mensaje) {
@@ -844,18 +915,22 @@ export async function verificarAlta(opciones, { fetchImpl, esperaReintentoMs } =
       informe.mensaje = informe.resumen.aviso
         ? `Alta verificada, con ${plural(informe.resumen.aviso, 'aviso')} para revisar.`
         : 'Alta verificada: todo en orden.';
+    } else if (resultado === 'ERROR') {
+      informe.mensaje = `La API no respondió a ${plural(deRed.length, 'consulta')} (error de red o tiempo de espera): `
+        + 'no se pudo verificar todo; reintenta.';
     } else {
-      informe.mensaje = `Hay ${plural(informe.resumen.falla, 'falla')}: revisa el detalle.`;
+      informe.mensaje = `Hay ${plural(informe.resumen.falla, 'falla')}`
+        + `${deRed.length ? ` (${deRed.length} por error de red de la API)` : ''}: revisa el detalle.`;
     }
     informe.duracionMs = Date.now() - inicio;
     informe.peticiones = cliente.peticiones;
     return informe;
   };
 
-  if (!PATRON_SLUG.test(slug)) {
-    c.push(comprobacion('municipio', 'formato slug', ESTADOS.AVISO,
-      `"${slug}" tiene caracteres fuera de [a-z0-9-]; los slugs distinguen mayúsculas`));
-  }
+  const formatoValido = PATRON_SLUG.test(slug);
+  const filaFormato = formatoValido ? null : comprobacion('municipio', 'formato slug', ESTADOS.AVISO,
+    `"${slug}" tiene caracteres fuera de [a-z0-9-]; los slugs distinguen mayúsculas`);
+  if (filaFormato) c.push(filaFormato);
 
   // 1. GET /api/municipios/<slug>
   const urlMunicipio = urlApi(api, slug);
@@ -864,18 +939,44 @@ export async function verificarAlta(opciones, { fetchImpl, esperaReintentoMs } =
   try {
     respuesta = await cliente.pedir(urlMunicipio);
   } catch (err) {
-    c.push(comprobacion('municipio', 'existe', ESTADOS.FALLA, `${ruta}: ${err.message}`));
+    c.push(comprobacion('municipio', 'existe', ESTADOS.FALLA, `${ruta}: ${err.message}`, { errorRed: true }));
     return terminar('ERROR', `La API no responde (${api}): ${err.message}.`);
   }
   const json = parsearJson(respuesta.texto);
 
   if (esAltaPendiente(respuesta.status, json.valor)) {
     c.push(comprobacion('municipio', 'existe', ESTADOS.FALLA, `${ruta} -> ${describirRespuesta(respuesta)}`));
-    const parecido = await buscarSlugParecido(cliente, api, slug);
-    if (parecido) {
-      c.push(comprobacion('municipio', 'slug parecido', ESTADOS.FALLA,
-        `no existe "${slug}" pero sí "${parecido}": los slugs distinguen mayúsculas`));
-      return terminar('FALLA', `No existe el slug "${slug}", pero sí "${parecido}": usa el slug exacto (distingue mayúsculas).`);
+    // Antes de declarar ALTA_PENDIENTE (código 2, el que hace esperar al bucle) se descartan
+    // los casos en que esperar no arreglaría nada.
+    const listado = await leerListado(cliente, api);
+    if (listado.lista) {
+      const exactos = listado.lista.filter((m) => esObjetoPlano(m) && m.slug === slug);
+      if (exactos.length) {
+        const detalle = listaCorta(exactos.map((m) => `id ${m.id}, activo=${JSON.stringify(m.activo)}`));
+        c.push(comprobacion('listado', 'aparece 1 vez', ESTADOS.FALLA,
+          `"${slug}" SÍ aparece en GET /api/municipios (${detalle}) aunque su detalle da 404: ¿filtro por activo o caché?`,
+          { apariciones: exactos.length, ids: exactos.map((m) => m.id) }));
+        return terminar('FALLA', `"${slug}" ya existe en el listado, pero ${ruta} da 404: no es un alta pendiente; `
+          + 'revisa activo o la caché de la API.');
+      }
+      const parecidos = slugsParecidos(listado.lista, slug);
+      if (parecidos.length) {
+        c.push(comprobacion('municipio', 'slug parecido', ESTADOS.FALLA,
+          `no existe "${slug}" pero sí ${listaCorta(parecidos.map((p) => `"${p}"`))}: `
+          + 'los slugs distinguen mayúsculas, acentos y guiones'));
+        return terminar('FALLA', `No existe el slug "${slug}", pero sí "${parecidos[0]}": usa el slug exacto `
+          + '(distingue mayúsculas, acentos y guiones).');
+      }
+    } else {
+      c.push(comprobacion('listado', 'slug parecido', ESTADOS.AVISO,
+        `no se pudo revisar el listado en busca de slugs parecidos: ${listado.error}`));
+    }
+    if (filaFormato) {
+      // Un alta nunca crea un slug con mayúsculas, acentos o espacios: esperar sería infinito.
+      filaFormato.estado = ESTADOS.FALLA;
+      filaFormato.detalle = `"${slug}" no existe y no es un slug válido (solo [a-z0-9-]: minúsculas, sin acentos ni espacios)`;
+      return terminar('FALLA', `"${slug}" no es un slug válido y no existe: corrígelo (minúsculas, sin acentos ni espacios); `
+        + 'no tiene sentido esperar a un alta con ese slug.');
     }
     return terminar('ALTA_PENDIENTE',
       `El municipio "${slug}" aún no existe en la BD; corre el alta. `
@@ -988,17 +1089,23 @@ OPCIONES
   --nombre "Villa Pesqueira"   El nombre en la API debe incluirlo (FALLA si no) y se busca
                                en el HTML del portal (AVISO si no).
   --portal URL                 Portal a revisar, p. ej. https://villapesqueira.vercel.app
+                               Solo la base: sin ?consulta ni #fragmento.
   --esperar-texto "texto"      Texto que debe aparecer en la portada del portal (FALLA si no).
                                Repetible. Requiere --portal. Compara con entidades HTML
-                               (&amp; &#x27; &quot; ...) y espacios normalizados; distingue mayúsculas.
+                               (&amp; &#x27; &quot; ...) y espacios normalizados. Si solo aparece
+                               con otras mayúsculas (p. ej. CSS capitalize) => AVISO; si solo
+                               aparece sin acentos => FALLA.
   --api URL                    Base de la API (por defecto ${API_POR_DEFECTO}).
-  --timeout ms                 Tiempo máximo por petición (por defecto ${TIMEOUT_POR_DEFECTO_MS}).
-                               Se reintenta 1 vez ante error de red, timeout o 5xx.
+  --timeout ms                 Tiempo máximo por petición (por defecto ${TIMEOUT_POR_DEFECTO_MS},
+                               máximo ${TIMEOUT_MAXIMO_MS}). Se reintenta 1 vez ante error de red,
+                               timeout o 5xx.
   --json                       Salida JSON para máquinas (en stdout).
   --ayuda, -h                  Muestra esta ayuda.
 
 QUÉ COMPRUEBA (cada punto: OK / AVISO / FALLA)
-  1. GET /api/municipios/<slug>: existe (404 "no encontrado" => ALTA_PENDIENTE), id UUID,
+  1. GET /api/municipios/<slug>: existe (404 "no encontrado" => ALTA_PENDIENTE, salvo que el
+     slug ya esté en el listado, solo difiera de otro en mayúsculas/acentos/guiones o no sea
+     un slug válido: entonces FALLA, porque esperar no lo arreglaría), id UUID,
      slug, activo === true, estado, nombre (--nombre y convención "${PREFIJO_NOMBRE}"),
      dominio (null => AVISO) y escudoUrl (HEAD o GET => 200 image/*).
   2. GET /api/municipios: el slug aparece exactamente 1 vez y con el mismo id.
@@ -1007,12 +1114,15 @@ QUÉ COMPRUEBA (cada punto: OK / AVISO / FALLA)
      Además revisa el detalle de una noticia de muestra (la lista no trae municipioId).
   4. Con --portal: GET / (200, cabeceras x-vercel-cache / age / x-nextjs-stale-time, --nombre y
      --esperar-texto en el HTML; la portada tiene caché ISR de ~${ISR_SEGUNDOS} s) y GET /transparencia/sevac (200).
+     Una redirección a otro host u otra ruta es FALLA (el 200 final no es la página pedida);
+     http -> https, "www." o la barra final se aceptan y se informan.
 
 CÓDIGOS DE SALIDA
   0  todo OK (puede haber avisos)
   1  alguna FALLA
   2  ALTA_PENDIENTE: el municipio aún no existe en la BD (corre el alta)
-  3  error de red o inesperado (API inalcanzable, respuesta rara, argumentos inválidos)
+  3  error de red o inesperado (la API no responde a alguna consulta, respuesta rara,
+     argumentos inválidos). Los errores de red del portal o del escudo cuentan como FALLA.
 
 ESPERAR A QUE TERMINE EL ALTA (bash/zsh)
   Repite mientras el código sea 2 y se detiene con 0, 1 o 3:
@@ -1035,15 +1145,20 @@ EJEMPLOS
 
 function traducirErrorParseArgs(err) {
   const mensaje = String(err?.message ?? err);
-  const opcion = mensaje.match(/'(-{1,2}[^' ]+)/)?.[1] ?? '';
+  // Node escribe "Option '-h, --ayuda' ..." o "Option '--nombre <value>' ...": se prefiere el nombre largo.
+  const citada = mensaje.match(/'(-{1,2}[^' ,]+)/)?.[1] ?? '';
+  const opcion = mensaje.match(/--[a-z0-9][a-z0-9-]*/i)?.[0] ?? citada;
   switch (err?.code) {
     case 'ERR_PARSE_ARGS_UNKNOWN_OPTION':
-      return `Opción desconocida: ${opcion || mensaje}`;
+      return `Opción desconocida: ${citada || mensaje}`;
     case 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE':
+      if (/does not take an argument/i.test(mensaje)) {
+        return `La opción ${opcion} no admite valor: escribe solo ${opcion}.`;
+      }
       if (/ambiguous/i.test(mensaje)) {
         return `El valor de ${opcion} empieza con "-": escríbelo como ${opcion}="valor".`;
       }
-      return `La opción ${opcion || ''} requiere un valor.`.replace('  ', ' ');
+      return opcion ? `La opción ${opcion} requiere un valor.` : `Valor de opción inválido: ${mensaje}`;
     case 'ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL':
       return `Argumento inesperado: ${mensaje}`;
     default:
@@ -1110,6 +1225,10 @@ export function analizarArgumentos(argv) {
     const ms = Number(valores.timeout);
     if (!/^\d+$/.test(valores.timeout.trim()) || !Number.isSafeInteger(ms) || ms <= 0) {
       throw new ErrorUso(`--timeout debe ser un entero positivo en milisegundos (recibido: "${valores.timeout}").`);
+    }
+    if (ms > TIMEOUT_MAXIMO_MS) {
+      throw new ErrorUso(`--timeout no puede pasar de ${TIMEOUT_MAXIMO_MS} ms (~24,8 días, el máximo de setTimeout); `
+        + `recibido: ${valores.timeout}.`);
     }
     opciones.timeoutMs = ms;
   }

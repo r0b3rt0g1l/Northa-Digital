@@ -15,6 +15,11 @@ import path from 'node:path';
 import {
   main,
   CODIGO,
+  MAX_SITEMAPS_HIJOS,
+  buscarTermino,
+  planificarRutasConTotal,
+  normalizarRuta,
+  decodificarPorcentajes,
   normalizarConMapa,
   rangoOriginal,
   regexTermino,
@@ -54,13 +59,13 @@ const CHUNK_PAGINA = '/_next/static/chunks/app/page-def456.js';
 const CSS = '/_next/static/css/app-789.css';
 
 /** HTML parecido al de Next (app router): CSS, chunk, payload RSC con ruta relativa. */
-function html({ cuerpo = '', enlaces = ['/gobierno', '/contacto'], municipio = 'Villa Pesqueira' } = {}) {
+function html({ cuerpo = '', enlaces = ['/gobierno', '/contacto'], municipio = 'Villa Pesqueira', facebook = 'villapesqueira' } = {}) {
   const nav = enlaces.map((e) => `<a href="${e}">${e}</a>`).join('');
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/>
 <title>Inicio · H. Ayuntamiento de ${municipio}</title>
 <link rel="stylesheet" href="${CSS}?dpl=dpl_1" data-precedence="next"/>
 <script src="${CHUNK_MAIN}?dpl=dpl_1" async=""></script>
-</head><body><nav>${nav}<a href="https://facebook.com/villapesqueira">Facebook</a><a href="/escudo.png">Escudo</a><a href="#arriba">Arriba</a></nav>
+</head><body><nav>${nav}<a href="https://facebook.com/${facebook}">Facebook</a><a href="/escudo.png">Escudo</a><a href="#arriba">Arriba</a></nav>
 <main><h1>H. Ayuntamiento de ${municipio}</h1><p>${cuerpo}</p></main>
 <script>self.__next_f.push([1,"2:I[5123,[\\"static/chunks/app/page-def456.js?dpl=dpl_1\\"],\\"default\\"]\\n"])</script>
 </body></html>`;
@@ -75,7 +80,7 @@ ${locs.map((l) => `  <url><loc>${l}</loc><lastmod>2026-09-01</lastmod></url>`).j
 
 /**
  * Portal limpio de Villa Pesqueira. `cambios` reemplaza o agrega rutas; cada
- * valor es un string (cuerpo), { estado, cuerpo, tipo, retraso } o una función
+ * valor es un string (cuerpo), { estado, cuerpo, tipo, retraso, cabeceras } o una función
  * (req, origen, n) que devuelve eso (n = número de petición a esa ruta).
  */
 function portalLimpio(cambios = {}) {
@@ -133,7 +138,7 @@ async function levantar(rutas, { api = { cuerpo: JSON.stringify(MUNICIPIOS) }, r
     if (typeof r === 'string') r = { cuerpo: r };
     const responder = () => {
       if (res.destroyed) return;
-      res.writeHead(r.estado ?? 200, { 'content-type': r.tipo ?? tipoPorRuta(u.pathname) });
+      res.writeHead(r.estado ?? 200, { 'content-type': r.tipo ?? tipoPorRuta(u.pathname), ...(r.cabeceras ?? {}) });
       res.end(r.cuerpo ?? '');
     };
     const espera = r.retraso ?? retraso;
@@ -178,7 +183,7 @@ async function puertoCerrado() {
 }
 
 /** Corre main() en proceso con --json y devuelve { codigo, json, texto, err }. */
-async function barrer(srv, args = [], { slug = 'villapesqueira', nombre = 'Villa Pesqueira', json = true, api } = {}) {
+async function barrer(srv, args = [], { slug = 'villapesqueira', nombre = 'Villa Pesqueira', json = true, api, fetchImpl } = {}) {
   const out = [];
   const err = [];
   const argv = [
@@ -190,7 +195,9 @@ async function barrer(srv, args = [], { slug = 'villapesqueira', nombre = 'Villa
     ...(json ? ['--json'] : []),
     ...args,
   ];
-  const codigo = await main(argv, { salida: (t) => out.push(t), error: (t) => err.push(t), esperaReintento: 0 });
+  const deps = { salida: (t) => out.push(t), error: (t) => err.push(t), esperaReintento: 0 };
+  if (fetchImpl) deps.fetchImpl = fetchImpl;
+  const codigo = await main(argv, deps);
   const texto = out.join('\n');
   return { codigo, json: json && texto ? JSON.parse(texto) : null, texto, err: err.join('\n') };
 }
@@ -423,11 +430,12 @@ test('slug sin alta y sin --nombre: código 3; slug con alta toma el nombre de l
 
   // Portal de Carbó: "Carbó" es propio; "Rayón" (vecino) es de otro municipio.
   const municipio = 'Carbó';
+  const facebook = 'carbo';
   const rutas = portalLimpio({
-    '/': html({ municipio, cuerpo: 'Carbó, Sonora. carbotransparencia.com.mx' }),
-    '/gobierno': html({ municipio, cuerpo: 'Las minas vecinas de Rayón y Opodepe.' }),
-    '/contacto': html({ municipio }),
-    '/turismo': html({ municipio }),
+    '/': html({ municipio, facebook, cuerpo: 'Carbó, Sonora. carbotransparencia.com.mx' }),
+    '/gobierno': html({ municipio, facebook, cuerpo: 'Las minas vecinas de Rayón y Opodepe.' }),
+    '/contacto': html({ municipio, facebook }),
+    '/turismo': html({ municipio, facebook }),
     [CHUNK_PAGINA]: 'x={nombre:"Carb\\u00f3"}',
   });
   const carbo = await barrerPortal(rutas, [], { slug: 'carbo', nombre: null });
@@ -438,7 +446,7 @@ test('slug sin alta y sin --nombre: código 3; slug con alta toma el nombre de l
   // Villa Pesqueira (del listado fijo) sí se busca en el portal de Carbó.
   assert.ok(carbo.json.terminos.some((t) => t.termino === 'villa pesqueira'));
   const conResto = await barrerPortal(
-    { ...rutas, '/turismo': html({ municipio: 'Villa Pesqueira' }) },
+    { ...rutas, '/turismo': html({ municipio: 'Villa Pesqueira', facebook }) },
     ['--permitir', 'rayon,opodepe'],
     { slug: 'carbo', nombre: null },
   );
@@ -760,4 +768,367 @@ test('formatearReporte: portal limpio muestra "ninguno" y código 0', () => {
   });
   assert.match(texto, /RESTOS DE OTROS MUNICIPIOS: ninguno/);
   assert.match(texto, /sin restos de otros municipios \(código 0\)/);
+});
+
+// ---------------------------------------------------------------------------
+// Segunda revisión: casos reproducidos por el revisor
+// ---------------------------------------------------------------------------
+
+const confVP = (extra = {}) =>
+  construirTerminos({ municipios: MUNICIPIOS, slug: 'villapesqueira', nombre: 'Villa Pesqueira', ...extra });
+const restosDe = (texto, conf = confVP()) => analizarDocumento(texto, conf).restos.map((h) => h.clave);
+
+test('varias palabras partidas por etiquetas, comentarios de React y marcado RSC/JSX: se detectan', () => {
+  const conf = confVP({ extra: ['misión jesuita'] });
+  const casos = [
+    ['Bienvenidos a Villa <span class="text-oro">Hidalgo</span>', 'villa hidalgo'],
+    ['San<!-- --> <!-- -->Javier, Sonora', 'san javier'],
+    ['Nacozari de<br/>García', 'nacozari de garcia'],
+    ['una misión <em>jesuita</em> de 1639', 'mision jesuita'],
+    ['"Villa ",["$","span",null,{"children":"Hidalgo"}]', 'villa hidalgo'],
+    // Payload RSC dentro del HTML (comillas escapadas dos veces).
+    ['self.__next_f.push([1,"[\\"Villa \\",[\\"$\\",\\"span\\",null,{\\"className\\":\\"text-oro\\",\\"children\\":\\"Hidalgo\\"}]]"])', 'villa hidalgo'],
+    // JSX compilado en un chunk.
+    ['children:["Villa ",(0,r.jsx)("span",{className:"text-oro",children:"Hidalgo"})]', 'villa hidalgo'],
+    ['(0,r.jsx)("b",{children:"San"})," Javier"', 'san javier'],
+    ['["$","b",null,{"children":"San"}]," Javier"', 'san javier'],
+    ['children:["San"," ","Javier"]', 'san javier'],
+    ['?q=San+Javier', 'san javier'],
+  ];
+  for (const [texto, termino] of casos) assert.deepEqual(restosDe(texto, conf), [termino], texto);
+
+  // No se unen palabras de atributos distintos, claves JSON ni texto pegado.
+  for (const texto of ['alt="Villa" title="Hidalgo"', '<div class="villa"><p>hidalgo', '{"san":1,"javier":2}', 'sanjavierito']) {
+    assert.deepEqual(restosDe(texto, conf), [], texto);
+  }
+  // El propio nombre partido por una etiqueta se sigue reconociendo como propio.
+  assert.deepEqual(restosDe('Villa <span class="text-oro">Pesqueira</span>', conf), []);
+  // Contexto del ORIGINAL (con la etiqueta dentro de «»).
+  const [h] = analizarDocumento('<h1>Bienvenidos a Villa <span class="text-oro">Hidalgo</span></h1>', conf).restos;
+  assert.equal(h.coincidencia, 'Villa <span class="text-oro">Hidalgo');
+  assert.match(h.contexto, /Bienvenidos a «Villa <span class="text-oro">Hidalgo»<\/span>/);
+});
+
+test('portada con "Villa <span>Hidalgo</span>" y "San<!-- --> <!-- -->Javier": código 1 de punta a punta', async () => {
+  const cuerpo = '<h1>Bienvenidos a Villa <span>Hidalgo</span></h1><p>San<!-- --> <!-- -->Javier</p>';
+  const { codigo, json } = await barrerPortal(portalLimpio({ '/': html({ cuerpo }) }));
+  assert.equal(codigo, CODIGO.RESTOS);
+  assert.deepEqual(terminosHallados(json), ['san javier', 'villa hidalgo']);
+});
+
+test('codificación por porcentaje y camelCase en URLs: se detectan (next/image, compartir, PDFs)', () => {
+  const casos = [
+    ['<img src="/_next/image?url=%2Fimg%2Fsahuaripa%2Fescudo.png&amp;w=640"/>', 'sahuaripa'],
+    ['url=https%3A%2F%2Fsahuaripatransparencia.com.mx%2Fescudo.png', 'sahuaripatransparencia.com.mx'],
+    ['<a href="/docs/Cuenta%20Publica%20Sahuaripa%202024.pdf">', 'sahuaripa'],
+    ['Bavi%C3%A1cora', 'baviacora'],
+    ['Bavi%E1cora', 'baviacora'], // Latin-1
+    ['Bavi%25C3%25A1cora', 'baviacora'], // doble codificación
+    ['/img/escudoSahuaripa.png', 'sahuaripa'],
+    ['SahuaripaEscudo.png', 'sahuaripa'],
+    ['logo2024Carbo.svg', 'carbo'],
+  ];
+  for (const [texto, termino] of casos) assert.deepEqual(restosDe(texto), [termino], texto);
+  // Sin falsos positivos: camelCase que sigue en minúscula, % que no es URL, el propio nombre.
+  for (const texto of ['isCarbon', 'hasCarbono', 'crayonRayones', '50%de descuento al 100%', 'VillaPesqueira', 'escudoVillaPesqueira.png']) {
+    assert.deepEqual(restosDe(texto), [], texto);
+  }
+  // El mapa apunta a los %XX originales.
+  const original = 'x%2FSahu%61ripa%2Fy';
+  const n = normalizarConMapa(original);
+  assert.equal(n.texto, 'x/sahuaripa/y');
+  const i = n.texto.indexOf('sahuaripa');
+  const [a, b] = rangoOriginal(n, i, i + 9);
+  assert.equal(original.slice(a, b), 'Sahu%61ripa');
+  assert.deepEqual(
+    decodificarPorcentajes('%C3%A1%de%2F').map((p) => [p.texto, p.decodificado]),
+    [['á', true], ['%de', false], ['/', true]],
+  );
+});
+
+test('next/image con %2F en la portada: código 1 de punta a punta', async () => {
+  const cuerpo = '<img alt="Escudo" src="/_next/image?url=%2Fimg%2Fsahuaripa%2Fescudo.png&amp;w=640&amp;q=75"/>';
+  const { codigo, json } = await barrerPortal(portalLimpio({ '/': html({ cuerpo }) }));
+  assert.equal(codigo, CODIGO.RESTOS);
+  assert.deepEqual(terminosHallados(json), ['sahuaripa']);
+  assert.match(json.restos[0].archivos[0].contextos[0], /%2F«sahuaripa»%2Fescudo/);
+});
+
+/** fetch que manda las peticiones de ciertos hosts al servidor local (dominios simulados). */
+function fetchConHosts(mapa) {
+  return (url, init) => {
+    const u = new URL(url);
+    if (mapa[u.host]) u.host = mapa[u.host];
+    return fetch(u, init);
+  };
+}
+
+test('redirección de una ruta a otro host: no se descarga, se avisa y se revisa solo la URL de destino', async () => {
+  const externo = await levantar({ '/listado': html({ cuerpo: 'Portal estatal: Sahuaripa, Carbó, Moctezuma, Arivechi' }) });
+  try {
+    const rutas = portalLimpio({
+      '/': html({ enlaces: ['/gobierno', '/pnt', '/viejo', '/copiado'] }),
+      '/pnt': { estado: 302, cabeceras: { location: `${externo.origen}/listado` } },
+      // Redirección copiada del molde hacia el portal de otro municipio: resto en la URL.
+      '/copiado': { estado: 308, cabeceras: { location: 'https://sahuaripatransparencia.com.mx/transparencia' } },
+      // Mismo host: se sigue.
+      '/viejo': { estado: 301, cabeceras: { location: '/nuevo' } },
+      '/nuevo': html({ cuerpo: 'Página nueva de Villa Pesqueira con la presa de Mátape.' }),
+    });
+    const { codigo, json, srv } = await barrerPortal(rutas);
+    assert.equal(externo.registro.length, 0, 'no se pidió nada al host externo');
+    assert.equal(srv.veces('/nuevo'), 1, 'la redirección al mismo host sí se sigue');
+    assert.equal(codigo, CODIGO.RESTOS);
+    assert.deepEqual(terminosHallados(json), ['sahuaripatransparencia.com.mx']);
+    assert.equal(json.restos[0].archivos[0].archivo, '/copiado (redirección)');
+    assert.ok(json.avisos.generales.some((a) => a.includes('/pnt') && a.includes(externo.origen) && /otro host/.test(a)));
+    assert.equal(json.rutas.find((r) => r.ruta === '/pnt').redireccion, `${externo.origen}/listado`);
+    assert.deepEqual(json.errores, []);
+
+    // Sin la redirección copiada: código 0 (la del /pnt es solo aviso).
+    delete rutas['/copiado'];
+    const limpio = await barrerPortal(rutas);
+    assert.equal(limpio.codigo, CODIGO.LIMPIO);
+    const texto = await barrerPortal(rutas, [], { json: false });
+    assert.match(texto.texto, /\/pnt \[→ 127\.0\.0\.1:\d+\]/);
+  } finally {
+    await externo.cerrar();
+  }
+});
+
+test('portada que redirige: al dominio registrado en la API se sigue; a otro host es código 3', async () => {
+  const conDominio = [...MUNICIPIOS, { id: '9', nombre: 'H. Ayuntamiento de Villa Pesqueira', slug: 'villapesqueira', dominio: 'www.villapesqueira.test' }];
+  let pedidasPortada = 0;
+  const rutas = portalLimpio({
+    '/': (req, origen) => {
+      pedidasPortada++;
+      if (pedidasPortada === 1) return { estado: 308, cabeceras: { location: `http://villapesqueira.test:${new URL(origen).port}/` } };
+      return html({ cuerpo: 'Bienvenidos a Villa Pesqueira.' });
+    },
+  });
+  const srv = await levantar(rutas, { api: { cuerpo: JSON.stringify(conDominio) } });
+  try {
+    const puerto = new URL(srv.origen).port;
+    const fetchImpl = fetchConHosts({ [`villapesqueira.test:${puerto}`]: `127.0.0.1:${puerto}` });
+    const r = await barrer(srv, [], { fetchImpl, nombre: null });
+    assert.equal(r.codigo, CODIGO.LIMPIO, JSON.stringify(r.json));
+    assert.equal(r.json.portal, `http://villapesqueira.test:${puerto}`);
+    assert.equal(r.json.portalPedido, srv.origen);
+    assert.ok(r.json.avisos.generales.some((a) => /La portada .* redirige a .*villapesqueira\.test/.test(a)));
+    assert.ok(r.json.rutas.length >= 3);
+  } finally {
+    await srv.cerrar();
+  }
+
+  // A un host que no es el del portal ni su dominio: no se sigue, código 3.
+  const fuera = await barrerPortal(
+    portalLimpio({ '/': { estado: 302, cabeceras: { location: 'https://www.sonora.gob.mx/' } } }),
+  );
+  assert.equal(fuera.codigo, CODIGO.ERROR);
+  assert.match(fuera.json.error, /redirige a https:\/\/www\.sonora\.gob\.mx\/.*--portal https:\/\/www\.sonora\.gob\.mx/);
+});
+
+test('--nombre de otro municipio con un slug dado de alta: código 3 (no silencia restos)', async () => {
+  const rutas = portalLimpio({ '/': html({ municipio: 'Carbó', facebook: 'carbo', cuerpo: 'Bienvenidos a Villa Pesqueira' }) });
+  const sin = await barrerPortal(rutas, [], { slug: 'carbo', nombre: null });
+  assert.equal(sin.codigo, CODIGO.RESTOS);
+  assert.ok(terminosHallados(sin.json).includes('villa pesqueira'));
+
+  const con = await barrerPortal(rutas, [], { slug: 'carbo', nombre: 'Villa Pesqueira' });
+  assert.equal(con.codigo, CODIGO.ERROR);
+  assert.match(con.json.error, /--nombre "Villa Pesqueira" no coincide .*"carbo".*"Carbó"/);
+
+  // Un --nombre que sí coincide (sin acento, con prefijo) se acepta y no cambia nada.
+  const conf = construirTerminos({ municipios: MUNICIPIOS, slug: 'carbo', nombre: 'H. Ayuntamiento de CARBO' });
+  assert.equal(conf.propio.nombre, 'Carbó');
+  assert.equal(conf.propio.fuenteNombre, 'api');
+  assert.ok(conf.terminos.some((t) => t.termino === 'villa pesqueira'));
+  assert.throws(
+    () => construirTerminos({ municipios: MUNICIPIOS, slug: 'carbo', nombre: 'Villa Pesqueira' }),
+    (e) => e instanceof ErrorBarrido && /no coincide/.test(e.message),
+  );
+});
+
+test('ruta con 5xx tras el reintento: código 3; 404 es solo aviso (código 0)', async () => {
+  const e500 = await barrerPortal(portalLimpio({ '/gobierno': { estado: 500, cuerpo: '<html>Internal Server Error</html>' } }));
+  assert.equal(e500.codigo, CODIGO.ERROR);
+  assert.equal(e500.srv.veces('/gobierno'), 2, 'se reintentó una vez');
+  assert.equal(e500.json.errores.length, 1);
+  assert.match(e500.json.errores[0].error, /HTTP 500 tras 2 intentos; no se revisó el contenido real/);
+
+  const e429 = await barrerPortal(portalLimpio({ '/gobierno': { estado: 429, cuerpo: 'despacio' } }));
+  assert.equal(e429.codigo, CODIGO.ERROR);
+
+  const e404 = await barrerPortal(portalLimpio({ '/gobierno': { estado: 404, cuerpo: '<html>No existe</html>' } }));
+  assert.equal(e404.codigo, CODIGO.LIMPIO);
+  assert.ok(e404.json.avisos.generales.some((a) => /\/gobierno respondió HTTP 404/.test(a)));
+
+  // Con restos, el código sigue siendo 1 aunque haya errores.
+  const ambos = await barrerPortal(
+    portalLimpio({ '/gobierno': { estado: 500, cuerpo: 'x' }, '/contacto': html({ cuerpo: 'Sahuaripa' }) }),
+  );
+  assert.equal(ambos.codigo, CODIGO.RESTOS);
+  assert.equal(ambos.json.errores.length, 1);
+});
+
+test('sitemap con 503: código 3 (rutas del sitemap sin revisar); sin sitemap (404): aviso y código 0', async () => {
+  const e503 = await barrerPortal(portalLimpio({ '/sitemap.xml': { estado: 503, cuerpo: 'x' } }));
+  assert.equal(e503.codigo, CODIGO.ERROR);
+  assert.equal(e503.srv.veces('/sitemap.xml'), 2);
+  assert.match(e503.json.errores[0].error, /HTTP 503; las rutas que solo están en el sitemap no se revisaron/);
+
+  const sinSitemap = { ...portalLimpio() };
+  delete sinSitemap['/sitemap.xml'];
+  const e404 = await barrerPortal(sinSitemap);
+  assert.equal(e404.codigo, CODIGO.LIMPIO);
+  assert.ok(e404.json.avisos.generales.some((a) => /No hay sitemap\.xml válido \(HTTP 404\)/.test(a)));
+});
+
+test('planificarRutas es lineal: 50 000 locs con máximo 5 en poco tiempo, con el total', () => {
+  const locs = Array.from({ length: 50_000 }, (_, i) => `/transparencia/documento-${i}`);
+  const t0 = performance.now();
+  const { rutas, total } = planificarRutasConTotal([locs, locs.slice(0, 100), ['/contacto']], 5);
+  const ms = performance.now() - t0;
+  assert.deepEqual(rutas, ['/', '/transparencia/documento-0', '/transparencia/documento-1', '/transparencia/documento-2', '/transparencia/documento-3']);
+  assert.equal(total, 50_002);
+  assert.ok(ms < 2000, `tardó ${Math.round(ms)} ms`);
+});
+
+test('sitemap de 50 000 <loc> con --max-rutas 5: rápido y con aviso de "5 de N"', async () => {
+  const rutas = portalLimpio({
+    '/sitemap.xml': (req, origen) => sitemap(Array.from({ length: 50_000 }, (_, i) => `${origen}/transparencia/documento-${i}`)),
+  });
+  for (let i = 0; i < 4; i++) rutas[`/transparencia/documento-${i}`] = html({ cuerpo: `Documento ${i}` });
+  const t0 = performance.now();
+  const { codigo, json } = await barrerPortal(rutas, ['--max-rutas', '5']);
+  assert.ok(performance.now() - t0 < 15_000);
+  assert.equal(codigo, CODIGO.LIMPIO);
+  assert.equal(json.rutas.length, 5);
+  // 50 000 del sitemap + "/" + los dos enlaces de la portada.
+  assert.ok(json.avisos.generales.some((a) => /Se revisaron 5 de 50003 rutas/.test(a)), json.avisos.generales.join('\n'));
+});
+
+test('índice de sitemaps: más de 10 hijos se avisa; un índice anidado se sigue un nivel', async () => {
+  const n = MAX_SITEMAPS_HIJOS + 2;
+  const indice = (origen, nombres) =>
+    `<?xml version="1.0"?><sitemapindex>${nombres.map((x) => `<sitemap><loc>${origen}/${x}</loc></sitemap>`).join('')}</sitemapindex>`;
+  const rutas = portalLimpio({
+    '/sitemap.xml': (req, origen) => indice(origen, Array.from({ length: n }, (_, i) => `s${i}.xml`)),
+  });
+  for (let i = 0; i < n; i++) rutas[`/s${i}.xml`] = (req, origen) => sitemap([`${origen}/r${i}`]);
+  for (let i = 0; i < n; i++) rutas[`/r${i}`] = html({ cuerpo: `ruta ${i}` });
+  const { codigo, json, srv } = await barrerPortal(rutas, ['--max-rutas', '50']);
+  assert.equal(codigo, CODIGO.LIMPIO);
+  assert.equal(srv.veces(`/s${n - 1}.xml`), 0);
+  assert.ok(
+    json.avisos.generales.some((a) => a.includes(`enumera ${n} sitemaps`) && a.includes(`solo se descargaron ${MAX_SITEMAPS_HIJOS}`)),
+    json.avisos.generales.join('\n'),
+  );
+
+  // Índice -> índice -> urlset: se siguen sus rutas; un tercer nivel se avisa.
+  const anidado = portalLimpio({
+    '/sitemap.xml': (req, origen) => indice(origen, ['indice-2.xml']),
+    '/indice-2.xml': (req, origen) => indice(origen, ['paginas.xml', 'indice-3.xml']),
+    '/paginas.xml': (req, origen) => sitemap([`${origen}/profunda`]),
+    '/indice-3.xml': (req, origen) => indice(origen, ['nunca.xml']),
+    '/profunda': html({ cuerpo: 'Ruta en un índice anidado: Sahuaripa.' }),
+  });
+  const r2 = await barrerPortal(anidado);
+  assert.equal(r2.codigo, CODIGO.RESTOS);
+  assert.equal(r2.json.restos[0].archivos[0].archivo, '/profunda');
+  assert.equal(r2.srv.veces('/nunca.xml'), 0);
+  assert.ok(r2.json.avisos.generales.some((a) => /\/indice-3\.xml es otro índice/.test(a)));
+});
+
+test('rutas con y sin codificar son la misma: se piden y cuentan una sola vez', async () => {
+  assert.equal(normalizarRuta('/noticias/año'), '/noticias/a%C3%B1o');
+  assert.equal(normalizarRuta('/noticias/a%c3%b1o/'), '/noticias/a%C3%B1o');
+  assert.equal(normalizarRuta('/noticias/a%C3%B1o?x=1#y'), '/noticias/a%C3%B1o');
+  assert.equal(normalizarRuta('/a%2Db/./c/../d'), '/a-b/d');
+  assert.equal(normalizarRuta('/con espacio'), '/con%20espacio');
+
+  const rutas = portalLimpio({
+    '/': html({ enlaces: ['/noticias/año', '/noticias/a%c3%b1o', '/gobierno'] }),
+    '/sitemap.xml': (req, origen) => sitemap([`${origen}/noticias/a%C3%B1o`]),
+    '/noticias/a%C3%B1o': html({ cuerpo: 'Noticia copiada: Sahuaripa.' }),
+  });
+  const { codigo, json, srv } = await barrerPortal(rutas);
+  assert.equal(codigo, CODIGO.RESTOS);
+  assert.equal(srv.veces('/noticias/a%C3%B1o'), 1);
+  assert.deepEqual(json.rutas.map((r) => r.ruta).filter((r) => r.startsWith('/noticias')), ['/noticias/a%C3%B1o']);
+  assert.equal(json.restos[0].total, 1);
+});
+
+test('Cloudinary con transformaciones separadas por comas: AVISO, no resto', () => {
+  const conf = confVP();
+  const a = analizarDocumento(
+    '<img src="https://res.cloudinary.com/dtpxt4a2p/image/upload/c_fill,w_800,q_auto,f_auto/v1/cms-municipal/plantilla/hero.jpg">',
+    conf,
+  );
+  assert.deepEqual(a.cloudinary.map((h) => h.clave), ['cms-municipal/plantilla/']);
+  const b = analizarDocumento('<img src="https://res.cloudinary.com/x/image/upload/w_800,f_auto/cms-municipal/sahuaripa/hero.jpg">', conf);
+  assert.deepEqual(b.restos, []);
+  assert.deepEqual(b.cloudinary.map((h) => h.clave), ['cms-municipal/sahuaripa/']);
+  assert.match(b.cloudinary[0].url, /w_800,f_auto\/cms-municipal\/sahuaripa\/hero\.jpg$/);
+});
+
+test('teléfonos: LADA + 7 dígitos seguidos y prefijos 01 / 044', () => {
+  const conf = confVP();
+  const tel = (s) => analizarDocumento(s, conf).telefonos.map((h) => h.clave);
+  assert.deepEqual(tel('Teléfono: (634) 3420123'), ['634 342 0123']);
+  assert.deepEqual(tel('Tel. 662 2134567'), ['662 213 4567']);
+  assert.deepEqual(tel('Tel. 01 (662) 213 4567'), ['662 213 4567']);
+  assert.deepEqual(tel('Tel. 01 662 213 4567'), ['662 213 4567']);
+  assert.deepEqual(tel('Cel. 044 662 123 4567'), ['662 123 4567']);
+  // Los formatos anteriores siguen igual.
+  assert.deepEqual(tel('(662) 213 4567 y 662-213-4567'), ['662 213 4567', '662 213 4567']);
+  assert.equal(digitosTelefono('01 662 213 4567'), '6622134567');
+  assert.equal(digitosTelefono('044 662 123 4567'), '6621234567');
+  assert.deepEqual(tel('Folio 123 4567890'), [], 'no empieza con LADA válida');
+});
+
+test('moldes de varias palabras: forma sin espacios y formas cortas, sin contar dos veces', () => {
+  const conf = confVP();
+  const t = conf.terminos.map((x) => x.termino);
+  for (const x of ['villahidalgo', 'nacorichico', 'nacozaridegarcia', 'sanmigueldehorcasitas', 'nacozari', 'horcasitas']) {
+    assert.ok(t.includes(x), x);
+  }
+  assert.ok(!t.includes('villapesqueira'), 'la forma sin espacios del propio también se excluye');
+  assert.deepEqual(restosDe('la heroica Nacozari', conf), ['nacozari']);
+  assert.deepEqual(restosDe('https://villahidalgo.gob.mx', conf), ['villahidalgo']);
+  assert.deepEqual(restosDe('/img/escudo-nacorichico.png', conf), ['nacorichico']);
+  // "Horcasitas" dentro de "San Miguel de Horcasitas" cuenta solo como el nombre largo.
+  assert.deepEqual(restosDe('Segregado de San Miguel de Horcasitas en 1931.', conf), ['san miguel de horcasitas']);
+  assert.deepEqual(restosDe('Rumbo a Horcasitas.', conf), ['horcasitas']);
+
+  // En el portal de San Miguel de Horcasitas, "Horcasitas" es propio.
+  const smh = construirTerminos({ municipios: MUNICIPIOS, slug: 'sanmigueldehorcasitas', nombre: 'San Miguel de Horcasitas' });
+  assert.ok(!smh.terminos.some((x) => /horcasitas/.test(x.termino)));
+  assert.deepEqual(restosDe('Bienvenidos a Horcasitas, San Miguel de Horcasitas.', smh), []);
+
+  // Permitir el nombre largo también permite sus variantes (y al revés).
+  for (const permitir of [['san miguel de horcasitas'], ['horcasitas']]) {
+    const c = confVP({ permitir });
+    assert.ok(!c.terminos.some((x) => /horcasitas/.test(x.termino)), permitir[0]);
+    assert.deepEqual(restosDe('Colinda con San Miguel de Horcasitas; rumbo a Horcasitas.', c), [], permitir[0]);
+  }
+});
+
+test('--timeout mayor al tope: error de argumento claro (código 3)', async () => {
+  assert.throws(
+    () => parsearArgumentos(['--portal', 'https://x.mx', '--slug', 'x', '--timeout', '3000000000']),
+    (e) => e instanceof ErrorBarrido && /--timeout debe ser como máximo 600000/.test(e.message),
+  );
+  assert.equal(parsearArgumentos(['--portal', 'https://x.mx', '--slug', 'x', '--timeout', '600000']).timeout, 600000);
+  const r = await correrCli(['--portal', 'https://x.mx', '--slug', 'x', '--timeout', '3000000000']);
+  assert.equal(r.codigo, 3);
+  assert.match(r.err, /--timeout debe ser como máximo/);
+  assert.doesNotMatch(r.err, /TimeoutOverflowWarning/);
+});
+
+test('buscarTermino: límites normales y camelCase solo con el original', () => {
+  const texto = 'logoSahuaripa y sahuaripa';
+  const n = normalizarConMapa(texto);
+  assert.equal(buscarTermino(n.texto, 'sahuaripa').length, 1, 'sin original no hay camelCase');
+  assert.equal(buscarTermino(n.texto, 'sahuaripa', { original: texto, norm: n }).length, 2);
 });
