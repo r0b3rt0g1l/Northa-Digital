@@ -22,6 +22,8 @@ import { pathToFileURL } from 'node:url';
 
 export const API_POR_DEFECTO = 'https://api.northadigital.com';
 export const TIMEOUT_POR_DEFECTO_MS = 15_000;
+/** Máximo que admite setTimeout (2^31 - 1 ms, ~24,8 días); por encima, Node lo reduce a 1 ms. */
+export const TIMEOUT_MAXIMO_MS = 2_147_483_647;
 export const ESPERA_REINTENTO_MS = 1_000;
 export const CONCURRENCIA_MAXIMA = 3;
 export const PREFIJO_NOMBRE = 'H. Ayuntamiento de ';
@@ -102,22 +104,39 @@ export function esObjetoPlano(valor) {
 
 export const dormir = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
 
+/**
+ * Valida una URL base (--api o --portal) y la devuelve como origen + ruta, sin barras
+ * finales. Rechaza ?consulta, #fragmento y credenciales: las rutas se construyen
+ * añadiendo segmentos a la base, y un "?x=1" haría que todas acabaran en la misma
+ * página (fetch además descarta el #fragmento).
+ */
+function validarBase(texto, opcion, original) {
+  let url;
+  try {
+    url = new URL(texto);
+  } catch {
+    throw new ErrorUso(`${opcion} no es una URL válida: "${original}".`);
+  }
+  if (texto.includes('?') || texto.includes('#')) {
+    throw new ErrorUso(`${opcion} no admite ?consulta ni #fragmento (recibido: "${original}"): `
+      + 'indica solo la base (p. ej. https://villapesqueira.vercel.app); el script arma las rutas.');
+  }
+  if (url.username || url.password) {
+    throw new ErrorUso(`${opcion} no admite usuario ni contraseña en la URL (recibido: "${original}").`);
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
 /** Normaliza la base de la API: sin barras finales y sin un "/api" final (las rutas ya lo incluyen). */
 export function normalizarBaseApi(api) {
   const texto = String(api ?? '').trim();
   if (!/^https?:\/\//i.test(texto)) {
     throw new ErrorUso(`--api debe empezar con http:// o https:// (recibido: "${api}").`);
   }
-  const base = texto.replace(/\/+$/, '').replace(/\/api$/i, '');
-  try {
-    new URL(base);
-  } catch {
-    throw new ErrorUso(`--api no es una URL válida: "${api}".`);
-  }
-  return base;
+  return validarBase(texto, '--api', api).replace(/\/api$/i, '');
 }
 
-/** Normaliza la URL del portal: agrega https:// si falta y quita barras finales. */
+/** Normaliza la URL del portal: agrega https:// si falta y quita barras finales. Sin ?consulta ni #fragmento. */
 export function normalizarPortal(portal) {
   let texto = String(portal ?? '').trim();
   if (!texto) throw new ErrorUso('--portal no puede estar vacío.');
@@ -125,18 +144,60 @@ export function normalizarPortal(portal) {
   if (!/^https?:\/\//i.test(texto)) {
     throw new ErrorUso(`--portal debe ser http:// o https:// (recibido: "${portal}").`);
   }
-  const base = texto.replace(/\/+$/, '');
-  try {
-    new URL(base);
-  } catch {
-    throw new ErrorUso(`--portal no es una URL válida: "${portal}".`);
-  }
-  return base;
+  return validarBase(texto, '--portal', portal);
 }
 
 /** Construye una URL de /api/municipios[/seg...] escapando cada segmento. */
 export function urlApi(base, ...segmentos) {
   return `${base}/api/municipios${segmentos.map((s) => `/${encodeURIComponent(s)}`).join('')}`;
+}
+
+/** URL de una ruta del portal (p. ej. "/transparencia/sevac") resuelta sobre su base normalizada. */
+export function urlPortal(portal, ruta) {
+  return new URL(String(ruta).replace(/^\/+/, ''), `${portal}/`).href;
+}
+
+/**
+ * Compara la URL pedida con la final (tras seguir redirecciones).
+ * - 'ninguna': no hubo redirección.
+ * - 'equivalente': mismo sitio y misma ruta; solo cambia la barra final, http -> https
+ *   o el prefijo "www." (redirección de dominio habitual en Vercel).
+ * - 'distinta': otro host u otra ruta; el 200 final no es la página pedida.
+ */
+export function clasificarRedireccion(pedida, final) {
+  if (!final || final === pedida) return { tipo: 'ninguna', nota: '' };
+  let a;
+  let b;
+  try {
+    a = new URL(pedida);
+    b = new URL(final);
+  } catch {
+    return { tipo: 'distinta', nota: ` (redirigido a ${final})` };
+  }
+  const ruta = (u) => u.pathname.replace(/\/+$/, '');
+  const host = (u) => u.hostname.toLowerCase().replace(/^www\./, '');
+  const protocoloCompatible = a.protocol === b.protocol || (a.protocol === 'http:' && b.protocol === 'https:');
+  const mismoSitio = host(a) === host(b) && a.port === b.port && protocoloCompatible;
+  if (mismoSitio && ruta(a) === ruta(b)) {
+    return a.href === b.href
+      ? { tipo: 'ninguna', nota: '' }
+      : { tipo: 'equivalente', nota: ` (redirigido a ${b.href}: mismo sitio)` };
+  }
+  return { tipo: 'distinta', nota: ` (redirigido a ${b.href})` };
+}
+
+/** Clave para comparar slugs ignorando mayúsculas, acentos, guiones y espacios. */
+export function plegarSlug(slug) {
+  return quitarAcentos(String(slug)).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** Slugs del listado distintos de `slug` que solo difieren en mayúsculas, acentos o guiones. */
+export function slugsParecidos(lista, slug) {
+  const clave = plegarSlug(slug);
+  if (!clave || !Array.isArray(lista)) return [];
+  return [...new Set(lista
+    .filter((m) => esObjetoPlano(m) && typeof m.slug === 'string' && m.slug !== slug && plegarSlug(m.slug) === clave)
+    .map((m) => m.slug))];
 }
 
 /** Ruta legible (sin la base) para los mensajes. */
@@ -152,7 +213,8 @@ export function esAltaPendiente(status, cuerpo) {
 
 // --- Entidades HTML y normalización de texto -------------------------------
 
-const ENTIDADES = {
+// Sin prototipo: "&constructor;" o "&toString;" no deben resolverse a funciones de Object.prototype.
+const ENTIDADES = Object.freeze(Object.assign(Object.create(null), {
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
   aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú', uuml: 'ü', ntilde: 'ñ',
   Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú', Uuml: 'Ü', Ntilde: 'Ñ',
@@ -160,7 +222,7 @@ const ENTIDADES = {
   laquo: '«', raquo: '»', hellip: '…', ndash: '–', mdash: '—', bull: '•',
   lsquo: '‘', rsquo: '’', sbquo: '‚', ldquo: '“', rdquo: '”', bdquo: '„',
   shy: '­', zwsp: '​', ensp: ' ', emsp: ' ', thinsp: ' ',
-};
+}));
 
 /** Decodifica entidades HTML con nombre (&amp; &aacute; ...) y numéricas (&#39; &#x27;). Una sola pasada. */
 export function decodificarEntidades(texto) {
@@ -216,6 +278,65 @@ export function contieneTexto(html, buscado, variantes = variantesHtml(html)) {
   const aguja = normalizarTexto(buscado);
   if (!aguja) return true;
   return variantes.some((v) => v.includes(aguja));
+}
+
+/**
+ * Pasa el texto a minúsculas (y, si se pide, sin acentos) carácter a carácter y guarda,
+ * para cada posición del resultado, la posición de origen: así se puede recortar del
+ * texto original el fragmento que coincidió.
+ */
+function plegarConMapa(texto, sinAcentos) {
+  let salida = '';
+  const mapa = [];
+  let posicion = 0;
+  for (const caracter of texto) {
+    let plegado = caracter.toLowerCase();
+    if (sinAcentos && plegado.charCodeAt(0) > 0x7f) plegado = quitarAcentos(plegado);
+    salida += plegado;
+    for (let k = 0; k < plegado.length; k++) mapa.push(posicion);
+    posicion += caracter.length;
+  }
+  mapa.push(posicion);
+  return { salida, mapa };
+}
+
+/**
+ * Prepara la búsqueda de textos en un HTML y devuelve buscar(texto) =>
+ * { coincidencia, fragmento }, donde coincidencia es:
+ *   'exacta'     aparece tal cual (con entidades, etiquetas y espacios normalizados);
+ *   'mayusculas' solo ignorando mayúsculas (típico de text-transform: capitalize/uppercase);
+ *   'acentos'    solo ignorando también los acentos;
+ *   null         no aparece.
+ * `fragmento` es el texto tal como está en el HTML (normalizado).
+ */
+export function crearBuscadorTexto(html) {
+  const variantes = variantesHtml(html);
+  const plegadas = {};
+  const plegar = (modo) => {
+    plegadas[modo] ??= variantes.map((v) => plegarConMapa(v, modo === 'acentos'));
+    return plegadas[modo];
+  };
+  return (buscado) => {
+    const aguja = normalizarTexto(buscado);
+    if (!aguja || variantes.some((v) => v.includes(aguja))) return { coincidencia: 'exacta', fragmento: aguja };
+    for (const modo of ['mayusculas', 'acentos']) {
+      const agujaPlegada = plegarConMapa(aguja, modo === 'acentos').salida;
+      if (!agujaPlegada) continue;
+      const lista = plegar(modo);
+      for (let i = 0; i < lista.length; i++) {
+        const indice = lista[i].salida.indexOf(agujaPlegada);
+        if (indice === -1) continue;
+        const { mapa } = lista[i];
+        return { coincidencia: modo, fragmento: variantes[i].slice(mapa[indice], mapa[indice + agujaPlegada.length]) };
+      }
+    }
+    return { coincidencia: null, fragmento: null };
+  };
+}
+
+/** Atajo de crearBuscadorTexto para un solo texto. */
+export function buscarTexto(html, buscado) {
+  return crearBuscadorTexto(html)(buscado);
 }
 
 /** Cabeceras de caché de Vercel/Next que interesa reportar. */
@@ -314,10 +435,12 @@ export function crearCliente({
   fetchImpl = globalThis.fetch,
 } = {}) {
   let peticiones = 0;
+  // setTimeout no admite más de 2^31 - 1 ms: con más, dispararía a 1 ms y abortaría todo.
+  const esperaMaxima = Math.min(Math.max(1, Number(timeoutMs) || TIMEOUT_POR_DEFECTO_MS), TIMEOUT_MAXIMO_MS);
 
   async function intentar(url, metodo, { leerCuerpo, aceptar }) {
     const controlador = new AbortController();
-    const temporizador = setTimeout(() => controlador.abort(), timeoutMs);
+    const temporizador = setTimeout(() => controlador.abort(), esperaMaxima);
     const inicio = Date.now();
     peticiones++;
     try {
@@ -344,7 +467,7 @@ export function crearCliente({
       };
     } catch (err) {
       if (controlador.signal.aborted) {
-        throw new ErrorRed(`tiempo de espera agotado (${timeoutMs} ms)`, { url, causa: err });
+        throw new ErrorRed(`tiempo de espera agotado (${esperaMaxima} ms)`, { url, causa: err });
       }
       const detalle = err?.cause?.code || err?.cause?.message || err?.message || String(err);
       throw new ErrorRed(`error de red (${detalle})`, { url, causa: err });

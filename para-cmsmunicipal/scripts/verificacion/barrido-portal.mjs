@@ -31,7 +31,7 @@
 // Códigos de salida: 0 sin restos (puede haber avisos), 1 hay restos,
 //                    3 error de red o de argumentos (o barrido incompleto).
 
-import { parseArgs } from 'node:util';
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 // ---------------------------------------------------------------------------
@@ -113,7 +113,11 @@ export function escaparRegex(texto) {
 
 /** Minúsculas + sin diacríticos (NFD). "Bacadéhuachi" -> "bacadehuachi". */
 export function plegar(texto) {
-  return String(texto).toLowerCase().normalize('NFD').replace(/\p{M}+/gu, '');
+  return String(texto)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/[\u00ad\u200b-\u200d\u2060\ufeff]/g, ''); // guion suave y espacios de ancho cero
 }
 
 /** Normaliza un término de búsqueda: plegado, espacios colapsados, sin bordes. */
@@ -437,11 +441,22 @@ function dedupPor(lista, clave) {
   });
 }
 
-/** Regex de un término normalizado con límites de palabra Unicode (equivalente a \b). */
+/**
+ * Regex de un término normalizado con límites de palabra Unicode (como \b, pero
+ * con letras acentuadas y "ñ" como parte de la palabra): "carbo" no coincide
+ * dentro de "carbon"/"carbono" ni "rayon" dentro de "crayon". El guion bajo
+ * cuenta como separador para detectar nombres de archivo (escudo_sahuaripa.png).
+ * Si el término empieza o termina en dígito, tampoco coincide dentro de un
+ * número decimal ("1639" no aparece en "0.1639" ni en "1639.5").
+ * Las palabras de un término de varias palabras admiten espacio, "-" o "_".
+ */
 export function regexTermino(termino) {
-  const partes = normalizarTermino(termino).split(/[\s\-_]+/).filter(Boolean).map(escaparRegex);
+  const norm = normalizarTermino(termino);
+  const partes = norm.split(/[\s\-_]+/).filter(Boolean).map(escaparRegex);
   const cuerpo = partes.join('[\\s\\-_]+');
-  return new RegExp(`(?<![\\p{L}\\p{N}_])${cuerpo}(?![\\p{L}\\p{N}_])`, 'gu');
+  const antes = /^\d/.test(norm) ? '(?<![\\p{L}\\p{N}]|\\d[.,])' : '(?<![\\p{L}\\p{N}])';
+  const despues = /\d$/.test(norm) ? '(?![\\p{L}\\p{N}]|[.,]\\d)' : '(?![\\p{L}\\p{N}])';
+  return new RegExp(`${antes}${cuerpo}${despues}`, 'gu');
 }
 
 // ---------------------------------------------------------------------------
@@ -463,21 +478,26 @@ const RE_SEGMENTO_CMS = /cms-municipal(?:\/|%2f)([a-z0-9][a-z0-9_-]*)(?:\/|%2f)/
 const RE_CORREO =
   /(?<![\w.%+-])[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9_%+-])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?![\w-])/g;
 
-const PREFIJO_52 = String.raw`(?:\+\s?52[\s.-]?(?:1[\s.-]?)?)?`;
+// Teléfonos mexicanos: 10 dígitos nacionales (LADA 2-9), con o sin +52 / +52 1.
+// - Enlaces explícitos: tel:, wa.me/, api.whatsapp.com/send?phone=.
+// - Con separadores, LADA de 2-3 dígitos y hasta 4 grupos: 662 123 4567,
+//   (662) 123-45-67, 623 23 35 131, 55 1234 5678, +52 1 662 123 4567.
+// - Corridos (6621234567): solo con +52 o si antes (40 caracteres) dice tel/cel/
+//   whatsapp/fax/phone..., para no confundirlos con identificadores o fechas.
+// Los límites evitan tomar un pedazo de un número más largo o de una serie de
+// números (coordenadas SVG, arreglos).
+const SEP_TEL = String.raw`[\s.-]`;
+const PREFIJO_52 = String.raw`\+\s?52${SEP_TEL}?(?:1${SEP_TEL}?)?`;
+const RE_TEL_EXPLICITO =
+  /(?:tel:|callto:)\s*(\+?[\d\s().-]{8,22}\d)|wa\.me\/(\d{10,13})|whatsapp\.com\/send\/?\?phone=(\d{10,13})/g;
 const RE_TELEFONO = new RegExp(
-  String.raw`(?<![\w+])(?<!\d[.,-])(?:` +
-    [
-      String.raw`tel:\s*\+?[\d\s().-]{8,20}\d`,
-      String.raw`wa\.me\/\d{10,13}`,
-      PREFIJO_52 + String.raw`\(\d{2,3}\)\s?\d{3,4}[\s.-]?\d{2}[\s.-]?\d{2}`,
-      PREFIJO_52 + String.raw`\d{3}([ .-])\d{3}\1\d{4}`,
-      PREFIJO_52 + String.raw`\d{3}([ .-])\d{3}\2\d{2}\2\d{2}`,
-      PREFIJO_52 + String.raw`\d{2}([ .-])\d{4}\3\d{4}`,
-      String.raw`\+\s?52\s?(?:1\s?)?\d{10}`,
-    ].join('|') +
-    String.raw`)(?!\w)(?![.,-]\d)`,
+  String.raw`(?<![\w+.,/-])(?<!\d\s)(?:` +
+    `(?:${PREFIJO_52})?(?:\\(\\d{2,3}\\)\\s?|\\d{2,3}${SEP_TEL})\\d{2,4}(?:${SEP_TEL}\\d{2,4}){0,2}` +
+    `|(${PREFIJO_52})?\\d{10}` +
+    String.raw`)(?!\w)(?![.,/-]\d)(?!\s\d)`,
   'g',
 );
+const RE_CONTEXTO_TEL = /(?:^|[^a-z])(?:tel|cel|whats|movil|fax|phone|llama)/;
 
 /** true si el correo es un marcador de posición obvio (tu@correo.com, ejemplo@...). */
 export function esCorreoPlaceholder(correo) {
@@ -503,6 +523,31 @@ export function digitosTelefono(texto) {
 export function formatearTelefono(d) {
   if (/^(?:55|56|33|81)/.test(d)) return `${d.slice(0, 2)} ${d.slice(2, 6)} ${d.slice(6)}`;
   return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+}
+
+const compacto = (s) => String(s).replace(/[^a-z0-9]+/g, '');
+
+/**
+ * Nombre de otro municipio contenido en un valor (correo) SIN límites de
+ * palabra: "transparenciasahuaripa2124@gmail.com" -> "sahuaripa". Solo
+ * nombres/slugs de municipios de 5+ letras; se ignoran las apariciones del
+ * propio nombre. Es una pista para el aviso, no cambia el código de salida.
+ */
+export function mencionaOtroMunicipio(valor, conf) {
+  let c = compacto(plegar(valor));
+  for (const p of conf.propio.terminos) {
+    const cp = compacto(p);
+    if (cp.length >= 4) c = c.split(cp).join('|');
+  }
+  let mejor = null;
+  for (const term of conf.terminos) {
+    if (!term.municipio) continue; // --extra
+    if (term.origenes.every((o) => o === 'API (dominio)')) continue;
+    const ct = compacto(term.termino);
+    if (ct.length < 5 || !c.includes(ct)) continue;
+    if (!mejor || ct.length > compacto(mejor).length) mejor = term.termino;
+  }
+  return mejor;
 }
 
 /**
@@ -573,15 +618,28 @@ export function analizarDocumento(original, conf, { radio = RADIO_CONTEXTO } = {
       if (TLD_ARCHIVO.has(tld)) continue;
       if (/(?:^|\.)sentry\.io$/.test(dominio)) continue;
       if (esCorreoPlaceholder(correo)) continue;
-      correos.push(hallazgo(correo, m.index, m.index + correo.length));
+      correos.push(hallazgo(correo, m.index, m.index + correo.length, { menciona: mencionaOtroMunicipio(correo, conf) }));
     }
   }
 
   const telefonos = [];
+  const rangosExplicitos = [];
+  if (/tel:|callto:|wa\.me|whatsapp/.test(t)) {
+    for (const m of t.matchAll(RE_TEL_EXPLICITO)) {
+      const b = m.index + m[0].length;
+      rangosExplicitos.push([m.index, b]);
+      const d = digitosTelefono(m[1] ?? m[2] ?? m[3]);
+      if (d) telefonos.push(hallazgo(formatearTelefono(d), m.index, b));
+    }
+  }
   for (const m of t.matchAll(RE_TELEFONO)) {
+    const a = m.index;
+    const b = a + m[0].length;
+    if (solapa(rangosExplicitos, a, b)) continue;
+    const corrido = /^\d+$/.test(m[0]);
+    if (corrido && !RE_CONTEXTO_TEL.test(t.slice(Math.max(0, a - 40), a))) continue;
     const d = digitosTelefono(m[0]);
-    if (!d) continue;
-    telefonos.push(hallazgo(formatearTelefono(d), m.index, m.index + m[0].length));
+    if (d) telefonos.push(hallazgo(formatearTelefono(d), a, b));
   }
 
   return { restos, correos, telefonos, cloudinary };
@@ -994,7 +1052,7 @@ export async function ejecutarBarrido(op, deps = {}) {
       const t = porTermino.get(h.clave);
       return { etiqueta: t?.etiqueta, municipio: t?.municipio ?? null, origenes: t?.origenes ?? [] };
     });
-    acumular(gCorreos, a.correos, d.archivo);
+    acumular(gCorreos, a.correos, d.archivo, (h) => ({ menciona: h.menciona ?? null }));
     acumular(gTelefonos, a.telefonos, d.archivo);
     acumular(gCloudinary, a.cloudinary, d.archivo, (h) => ({ slug: h.slug }));
   }
@@ -1115,6 +1173,9 @@ export function formatearReporte(r, { maxContextos = 5 } = {}) {
     }
     L.push('');
     L.push(`IMPORTANTE: ${NOTA_REVISION}`);
+    L.push(
+      `  Si después de revisarlas TODAS son legítimas: --permitir "${r.restos.map((g) => g.termino).join(',')}"`,
+    );
   }
   L.push('');
 
@@ -1122,7 +1183,10 @@ export function formatearReporte(r, { maxContextos = 5 } = {}) {
   const hayAvisos = correos.length + telefonos.length + cloudinary.length + generales.length > 0;
   if (hayAvisos) {
     L.push('AVISOS (no cambian el código de salida; confirma que sean de este municipio):');
-    for (const g of correos) imprimirGrupo(L, g, `[AVISO] correo ${g.valor}`, 2);
+    for (const g of correos) {
+      const pista = g.menciona ? ` — contiene «${g.menciona}»: ¿es de otro municipio?` : '';
+      imprimirGrupo(L, g, `[AVISO] correo ${g.valor}${pista}`, 2);
+    }
     for (const g of telefonos) imprimirGrupo(L, g, `[AVISO] teléfono ${g.valor}`, 2);
     for (const g of cloudinary) {
       imprimirGrupo(L, g, `[AVISO] Cloudinary con otro slug: ${g.valor}`, 2);
@@ -1177,6 +1241,8 @@ Qué revisa:
   un listado fijo de municipios de Sonora usados como molde y --extra. Se ignoran
   mayúsculas, acentos, escapes \\uXXXX y entidades HTML, con límites de palabra.
   Avisos: correos, teléfonos mexicanos y URLs de Cloudinary con cms-municipal/<otro-slug>/.
+  Un correo que lleva pegado el nombre de otro municipio (transparenciasahuaripa@...)
+  se marca con una pista; los avisos no cambian el código de salida.
 
   El script no distingue menciones legítimas (colindancias, historia): revisa cada
   contexto a mano y usa --permitir para las legítimas.
@@ -1187,31 +1253,65 @@ Códigos de salida:
   3  error de red o de argumentos (incluye barrido incompleto sin restos)
 `;
 
+const OPCIONES_CLI = Object.freeze({
+  portal: 'valor',
+  slug: 'valor',
+  nombre: 'valor',
+  extra: 'lista',
+  permitir: 'lista',
+  'max-rutas': 'valor',
+  api: 'valor',
+  timeout: 'valor',
+  json: 'bandera',
+  ayuda: 'bandera',
+  help: 'bandera',
+});
+const OPCIONES_CORTAS = Object.freeze({ h: 'ayuda' });
+
+/**
+ * Lee argv sin dependencias (util.parseArgs no existe en Node 18.0-18.2).
+ * Acepta "--opcion valor" y "--opcion=valor"; --extra y --permitir se pueden
+ * repetir. Lanza ErrorBarrido ante opciones desconocidas o sin valor.
+ */
+export function leerArgv(argv) {
+  const valores = { extra: [], permitir: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = String(argv[i]);
+    let nombre;
+    let valor;
+    if (arg.startsWith('--')) {
+      const igual = arg.indexOf('=');
+      nombre = igual === -1 ? arg.slice(2) : arg.slice(2, igual);
+      valor = igual === -1 ? undefined : arg.slice(igual + 1);
+    } else if (/^-[a-zA-Z]$/.test(arg) && OPCIONES_CORTAS[arg[1]]) {
+      nombre = OPCIONES_CORTAS[arg[1]];
+    } else {
+      throw new ErrorBarrido(`Argumento inesperado: "${arg}". Usa --ayuda.`);
+    }
+    const tipo = Object.hasOwn(OPCIONES_CLI, nombre) ? OPCIONES_CLI[nombre] : null;
+    if (!tipo) throw new ErrorBarrido(`Opción desconocida: --${nombre}. Usa --ayuda.`);
+    if (tipo === 'bandera') {
+      if (valor !== undefined) throw new ErrorBarrido(`--${nombre} no lleva valor.`);
+      valores[nombre] = true;
+      continue;
+    }
+    if (valor === undefined) {
+      valor = argv[i + 1];
+      if (valor === undefined || String(valor).startsWith('--')) {
+        throw new ErrorBarrido(`Falta el valor de --${nombre}. Usa --ayuda.`);
+      }
+      valor = String(valor);
+      i++;
+    }
+    if (tipo === 'lista') valores[nombre].push(valor);
+    else valores[nombre] = valor;
+  }
+  return valores;
+}
+
 /** Interpreta argv. Devuelve { ayuda: true } o las opciones; lanza ErrorBarrido si son inválidas. */
 export function parsearArgumentos(argv) {
-  let valores;
-  try {
-    ({ values: valores } = parseArgs({
-      args: argv,
-      strict: true,
-      allowPositionals: false,
-      options: {
-        portal: { type: 'string' },
-        slug: { type: 'string' },
-        nombre: { type: 'string' },
-        extra: { type: 'string', multiple: true },
-        permitir: { type: 'string', multiple: true },
-        'max-rutas': { type: 'string' },
-        api: { type: 'string' },
-        timeout: { type: 'string' },
-        json: { type: 'boolean' },
-        ayuda: { type: 'boolean', short: 'h' },
-        help: { type: 'boolean' },
-      },
-    }));
-  } catch (e) {
-    throw new ErrorBarrido(`Argumentos inválidos: ${e.message}. Usa --ayuda.`);
-  }
+  const valores = leerArgv(argv);
   if (valores.ayuda || valores.help) return { ayuda: true, json: Boolean(valores.json) };
 
   const json = Boolean(valores.json);
@@ -1238,7 +1338,8 @@ export function parsearArgumentos(argv) {
   let api = API_POR_DEFECTO;
   if (valores.api !== undefined) {
     try {
-      api = new URL(valores.api).href.replace(/\/+$/, '');
+      // Se acepta la raíz de la API, o la URL con /api o /api/municipios.
+      api = new URL(valores.api).href.replace(/\/+$/, '').replace(/\/api(?:\/municipios)?$/i, '');
     } catch {
       throw new ErrorBarrido(`--api no es una URL válida: ${valores.api}`);
     }
@@ -1288,9 +1389,13 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   }
 }
 
+/** true si este archivo se ejecutó directamente (no importado por las pruebas). */
 function esPuntoDeEntrada() {
+  if (!process.argv[1]) return false;
   try {
-    return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
+    if (import.meta.url === pathToFileURL(process.argv[1]).href) return true;
+    // Invocado por un enlace simbólico: import.meta.url trae la ruta real.
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
   } catch {
     return false;
   }
