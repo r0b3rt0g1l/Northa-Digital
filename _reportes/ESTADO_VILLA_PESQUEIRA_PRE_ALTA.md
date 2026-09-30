@@ -281,14 +281,15 @@ En Cloudflare: **Zero Trust → Access → Applications → "CMS Admin Northa" �
 
 ### Paso 3: prueba de punta a punta (los dos)
 
-1. Yo arranco el medidor **antes** de que publiques:
+1. Acordamos un título único con la hora (por ejemplo "Prueba Villa Pesqueira 15:40"). El medidor exige el título **y** el enlace a esa noticia concreta, y con la hora se evitan choques con pruebas anteriores.
+2. Yo arranco el medidor **antes** de que publiques:
    ```bash
    node para-cmsmunicipal/scripts/verificacion/medir-publicacion.mjs --slug villapesqueira \
-     --portal https://villapesqueira.vercel.app --titulo "Prueba Villa Pesqueira"
+     --portal https://villapesqueira.vercel.app --titulo "Prueba Villa Pesqueira 15:40" --limite 600
    ```
-2. Tú publicas en el panel la noticia "Prueba Villa Pesqueira" (cuerpo "Test"), con una imagen propia.
-3. El medidor registra cuándo aparece en la API, en el home, en `/acciones-de-gobierno` y en el detalle.
-4. Limpieza: antes de borrar, te muestro el detalle exacto (`GET /api/municipios/villapesqueira/noticias/<slug>`). Tú la borras en el panel y yo confirmo que la API responde 404.
+3. Tú publicas en el panel la noticia con ese título (cuerpo "Test") y una imagen propia.
+4. El medidor registra cuándo aparece en la API, en el home, en `/acciones-de-gobierno` y en el detalle.
+5. Limpieza: antes de borrar, te muestro el detalle exacto (`GET /api/municipios/villapesqueira/noticias/<slug>`). Tú la borras en el panel y yo confirmo que la API responde 404.
 
 ---
 
