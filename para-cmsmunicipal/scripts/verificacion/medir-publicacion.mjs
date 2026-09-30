@@ -7,7 +7,8 @@
 // Es la prueba de punta a punta "publicar y verla en el portal en < 1 min".
 //
 // SOLO LECTURA: únicamente peticiones GET. Nunca publica, edita ni revalida nada.
-// Requisitos: Node >= 18, sin dependencias.
+// Requisitos: Node >= 18.3 (fetch global y util.parseArgs), sin dependencias. Las pruebas
+// (medir-publicacion.test.mjs) necesitan Node >= 18.6 (describe de node:test).
 //
 //   node scripts/verificacion/medir-publicacion.mjs --slug villapesqueira \
 //        --portal https://villapesqueira.vercel.app --titulo "Prueba Villa Pesqueira"
@@ -17,7 +18,9 @@
 // · 2 no apareció antes del límite · 3 error de red o de argumentos.
 
 import fs from 'node:fs';
-import { parseArgs } from 'node:util';
+// Importación de espacio de nombres (no `{ parseArgs }`): en Node < 18.3 no existe util.parseArgs
+// y una importación con nombre fallaría al cargar, con un SyntaxError en inglés y código 1.
+import * as util from 'node:util';
 import { pathToFileURL } from 'node:url';
 
 // ---------------------------------------------------------------------------
@@ -34,6 +37,17 @@ export const UMBRAL_POR_DEFECTO_S = 60;
 export const ISR_SEGUNDOS = 300;
 /** Títulos normalizados más cortos que esto pueden dar coincidencias falsas en el HTML. */
 export const TITULO_CORTO = 10;
+/**
+ * Holgura (s) al decidir que una copia de caché es anterior a la noticia comparando su `age` con
+ * el último sondeo en que la API aún no la tenía (mismo reloj local: solo cubre el redondeo de age).
+ */
+export const MARGEN_EDAD_S = 2;
+/** Holgura (s) al comparar la fecha de generación de la copia (Date - age) con creadoEn de la API. */
+export const MARGEN_CREACION_S = 30;
+/** Topes de los argumentos (evitan errores de dedo y el desbordamiento de setTimeout > 2^31-1 ms). */
+export const MAX_TIMEOUT_MS = 600_000;
+export const MAX_LIMITE_S = 86_400;
+export const MAX_INTERVALO_S = 3_600;
 
 export const CODIGOS = Object.freeze({ RAPIDO: 0, LENTO: 1, NO_APARECIO: 2, ERROR: 3 });
 const RESULTADOS = Object.freeze({ 0: 'RAPIDO', 1: 'LENTO', 2: 'NO_APARECIO', 3: 'ERROR' });
@@ -71,6 +85,15 @@ export class ErrorUso extends Error {
   constructor(mensaje) {
     super(mensaje);
     this.name = 'ErrorUso';
+  }
+}
+
+/** La medición se detuvo (Ctrl+C) con una petición en curso: no es un error de red. */
+export class ErrorInterrumpido extends Error {
+  constructor(mensaje = 'medición interrumpida (Ctrl+C)', { url } = {}) {
+    super(mensaje);
+    this.name = 'ErrorInterrumpido';
+    this.url = url;
   }
 }
 
@@ -122,22 +145,41 @@ function plural(n, singular, pluralTexto = `${singular}s`) {
   return `${n} ${n === 1 ? singular : pluralTexto}`;
 }
 
+/**
+ * Rechaza lo que rompería la construcción de URLs: credenciales, "?consulta" y "#fragmento"
+ * (con "#" todas las rutas acabarían en la portada; con "?" se saltaría la caché ISR).
+ */
+function rechazarPartesExtra(u, opcion, original, sugerencia) {
+  if (u.username || u.password) {
+    throw new ErrorUso(`${opcion} no debe llevar usuario ni contraseña (recibido: "${original}").`);
+  }
+  if (u.search || u.hash || /[?#]/.test(original)) {
+    throw new ErrorUso(`${opcion} no debe llevar "?parámetros" ni "#ancla" (recibido: "${original}"); usa ${sugerencia}.`);
+  }
+}
+
 /** Normaliza la base de la API: sin barras finales y sin un "/api" final (las rutas ya lo incluyen). */
 export function normalizarBaseApi(api) {
   const texto = String(api ?? '').trim();
   if (!/^https?:\/\//i.test(texto)) {
     throw new ErrorUso(`--api debe empezar con http:// o https:// (recibido: "${api}").`);
   }
-  const base = texto.replace(/\/+$/, '').replace(/\/api$/i, '');
+  let u;
   try {
-    new URL(base);
+    u = new URL(texto);
   } catch {
     throw new ErrorUso(`--api no es una URL válida: "${api}".`);
   }
-  return base;
+  const ruta = u.pathname.replace(/\/+$/, '').replace(/\/api$/i, '');
+  rechazarPartesExtra(u, '--api', texto, `${u.origin}${ruta}`);
+  return `${u.origin}${ruta}`;
 }
 
-/** Normaliza la URL del portal: agrega https:// si falta y quita barras finales. */
+/**
+ * Normaliza la URL del portal a su origen (esquema + dominio [+ puerto]): agrega https:// si falta.
+ * Rechaza rutas, "?parámetros" y "#anclas" (p. ej. una URL pegada desde el navegador): las páginas
+ * que se sondean (/, /acciones-de-gobierno y el detalle) se construyen sobre el origen.
+ */
 export function normalizarPortal(portal) {
   let texto = String(portal ?? '').trim();
   if (!texto) throw new ErrorUso('--portal no puede estar vacío.');
@@ -145,29 +187,65 @@ export function normalizarPortal(portal) {
   if (!/^https?:\/\//i.test(texto)) {
     throw new ErrorUso(`--portal debe ser http:// o https:// (recibido: "${portal}").`);
   }
-  const base = texto.replace(/\/+$/, '');
+  let u;
   try {
-    new URL(base);
+    u = new URL(texto);
   } catch {
     throw new ErrorUso(`--portal no es una URL válida: "${portal}".`);
   }
-  return base;
+  if (!u.hostname) throw new ErrorUso(`--portal no es una URL válida: "${portal}".`);
+  rechazarPartesExtra(u, '--portal', String(portal).trim(), u.origin);
+  if (u.pathname.replace(/\/+$/, '') !== '') {
+    throw new ErrorUso(`--portal debe ser solo el dominio del portal, sin ruta (recibido: "${String(portal).trim()}"); `
+      + `usa ${u.origin}.`);
+  }
+  return u.origin;
 }
 
 export function urlNoticias(api, slug) {
   return `${api}/api/municipios/${encodeURIComponent(slug)}/noticias`;
 }
 
+/** Prefijo de las páginas de detalle de noticias en el portal. */
+export const PREFIJO_DETALLE = '/acciones-de-gobierno/noticias/';
+
 export function rutaDetalle(slugNoticia) {
-  return `/acciones-de-gobierno/noticias/${encodeURIComponent(slugNoticia)}`;
+  return `${PREFIJO_DETALLE}${encodeURIComponent(slugNoticia)}`;
 }
 
 /**
- * URL de una página del portal. Nunca agrega parámetros de consulta: un "?t=..." se saltaría
- * la caché ISR de Vercel y la medición ya no reflejaría lo que ve un visitante.
+ * URL de una página del portal (`portal` es un origen, ver normalizarPortal). Nunca agrega
+ * parámetros de consulta: un "?t=..." se saltaría la caché ISR de Vercel y la medición ya no
+ * reflejaría lo que ve un visitante.
  */
 export function urlPortal(portal, ruta) {
-  return ruta === '/' ? `${portal}/` : `${portal}${ruta}`;
+  const u = new URL(ruta, `${portal}/`);
+  u.search = '';
+  u.hash = '';
+  return u.href;
+}
+
+/**
+ * Si la respuesta terminó en otra ruta (el portal redirigió), devuelve esa ruta; si es la misma
+ * (ignorando la barra final y el dominio, p. ej. http -> https o apex -> www), devuelve null.
+ */
+export function rutaRedirigida(urlFinal, ruta) {
+  let final;
+  try {
+    final = new URL(urlFinal).pathname;
+  } catch {
+    return null;
+  }
+  const normalizar = (x) => {
+    let s = String(x).replace(/\/+$/, '') || '/';
+    try {
+      s = decodeURIComponent(s);
+    } catch {
+      // se compara tal cual
+    }
+    return s;
+  };
+  return normalizar(final) === normalizar(ruta) ? null : final;
 }
 
 // --- Normalización de títulos y HTML ----------------------------------------
@@ -253,6 +331,56 @@ export function htmlContieneTitulo(html, titulo, variantes = variantesHtml(html)
   return variantes.some((v) => v.includes(aguja));
 }
 
+function escaparRegex(texto) {
+  return String(texto).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * ¿La página enlaza el detalle de ESTA noticia? Busca la ruta /acciones-de-gobierno/noticias/<slug>
+ * (relativa o absoluta, en un href o en el payload RSC) terminada justo ahí: el slug
+ * "trabajos-de-limpieza" no coincide con ".../trabajos-de-limpieza-y-mantenimiento" ni
+ * "prueba-villa-pesqueira" con "prueba-villa-pesqueira-2".
+ * En portada y listado el título solo no basta: puede ser el de otra noticia que lo contiene o el
+ * de una noticia anterior con el mismo título que sigue en una copia vieja de la caché.
+ */
+export function htmlEnlazaNoticia(html, slugNoticia) {
+  if (typeof slugNoticia !== 'string' || !slugNoticia) return false;
+  const formas = [...new Set([slugNoticia, encodeURIComponent(slugNoticia)])].map(escaparRegex).join('|');
+  const patron = new RegExp(`${escaparRegex(PREFIJO_DETALLE)}(?:${formas})/?(?=["'\\\\?#<>\\s&]|$)`);
+  const crudo = String(html ?? '');
+  return patron.test(crudo) || patron.test(desescaparJs(crudo));
+}
+
+/**
+ * ¿La copia servida se generó antes de que la noticia existiera? `tSinNoticia`: segundos (reloj
+ * local) en que empezó el último sondeo cuya respuesta de la API aún NO tenía la noticia;
+ * `tRespuesta`: segundos en que llegó la respuesta del portal; `age`: segundos (enteros, hacia
+ * abajo) que la copia lleva en la caché. La copia se generó a más tardar en tRespuesta - age; si eso
+ * es antes de tSinNoticia, no pudo incluir la noticia y lo que coincide es de una noticia anterior.
+ * Devuelve un texto con el motivo o null.
+ */
+export function copiaAnteriorALaNoticia({ age, tRespuesta, tSinNoticia, margenS = MARGEN_EDAD_S }) {
+  if (!Number.isFinite(age) || !Number.isFinite(tRespuesta) || !Number.isFinite(tSinNoticia)) return null;
+  const generadaAMasTardar = tRespuesta - age;
+  if (generadaAMasTardar >= tSinNoticia - margenS) return null;
+  return `copia de caché anterior a la noticia (age=${age} s, pero hace ${fmt(tRespuesta - tSinNoticia)} s la API aún no la tenía)`;
+}
+
+/**
+ * Lo mismo con relojes de servidor: la copia se generó a más tardar en Date + 1 s - age (Date tiene
+ * resolución de 1 s); si eso es anterior a creadoEn de la noticia (con MARGEN_CREACION_S de holgura
+ * por la diferencia de relojes), la copia no puede incluirla. Sirve aunque la noticia ya estuviera
+ * publicada al iniciar (p. ej. se borró y se volvió a crear con el mismo título y slug).
+ */
+export function copiaAnteriorACreacion({ age, fechaMs, creadoEn, margenS = MARGEN_CREACION_S }) {
+  if (!Number.isFinite(age) || !Number.isFinite(fechaMs) || typeof creadoEn !== 'string') return null;
+  const creado = Date.parse(creadoEn);
+  if (!Number.isFinite(creado)) return null;
+  const generadaAMasTardar = fechaMs + 1000 - age * 1000;
+  if (generadaAMasTardar >= creado - margenS * 1000) return null;
+  return `copia de caché anterior a la creación de la noticia (age=${age} s; creadoEn ${creadoEn})`;
+}
+
 /** Noticias de la lista cuyo título normalizado es idéntico al buscado (en el orden de la API). */
 export function buscarNoticias(lista, titulo) {
   const aguja = normalizarTitulo(titulo);
@@ -291,6 +419,14 @@ export function cabecerasCache(headers) {
     age: enteroONulo(leer('age')),
     staleTime: enteroONulo(leer('x-nextjs-stale-time')),
   };
+}
+
+/** Cabecera Date de la respuesta en ms (reloj del servidor), o null. */
+export function fechaRespuesta(headers) {
+  const valor = headers?.get?.('date');
+  if (!valor) return null;
+  const ms = Date.parse(valor);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 /** "HIT age=280" (para las líneas de sondeo); '' si no hay cabeceras. */
@@ -354,19 +490,29 @@ export function diagnosticarCache(historial, { ventana = ISR_SEGUNDOS } = {}) {
 /**
  * Crea un cliente HTTP de solo lectura. `pedir()` hace GET/HEAD con timeout por intento
  * (AbortController) y reintenta 1 vez ante error de red, timeout o 5xx.
- * Devuelve { status, ok, headers, texto, url, ms, intentos } o lanza ErrorRed.
+ * `senal` (opcional, AbortSignal): al abortarse (Ctrl+C) corta la petición en curso y la espera
+ * del reintento, y `pedir()` lanza ErrorInterrumpido (no ErrorRed).
+ * Devuelve { status, ok, headers, texto, url, ms, intentos } o lanza ErrorRed / ErrorInterrumpido.
  */
 export function crearCliente({
   timeoutMs = TIMEOUT_POR_DEFECTO_MS,
   reintentos = 1,
   esperaReintentoMs = ESPERA_REINTENTO_MS,
   fetchImpl = globalThis.fetch,
+  senal,
 } = {}) {
   let peticiones = 0;
 
   async function intentar(url, metodo, aceptar) {
+    if (senal?.aborted) throw new ErrorInterrumpido(undefined, { url });
     const controlador = new AbortController();
-    const temporizador = setTimeout(() => controlador.abort(), timeoutMs);
+    let porTimeout = false;
+    const temporizador = setTimeout(() => {
+      porTimeout = true;
+      controlador.abort();
+    }, timeoutMs);
+    const alInterrumpir = () => controlador.abort();
+    senal?.addEventListener?.('abort', alInterrumpir, { once: true });
     const inicio = Date.now();
     peticiones++;
     try {
@@ -379,13 +525,15 @@ export function crearCliente({
       const texto = metodo === 'HEAD' ? '' : await res.text();
       return { status: res.status, ok: res.ok, headers: res.headers, texto, url: res.url || url, ms: Date.now() - inicio };
     } catch (err) {
-      if (controlador.signal.aborted) {
+      if (senal?.aborted) throw new ErrorInterrumpido(undefined, { url });
+      if (porTimeout) {
         throw new ErrorRed(`tiempo de espera agotado (${timeoutMs} ms)`, { url, causa: err });
       }
       const detalle = err?.cause?.code || err?.cause?.message || err?.message || String(err);
       throw new ErrorRed(`error de red (${detalle})`, { url, causa: err });
     } finally {
       clearTimeout(temporizador);
+      senal?.removeEventListener?.('abort', alInterrumpir);
     }
   }
 
@@ -396,7 +544,8 @@ export function crearCliente({
     }
     let ultimoError = null;
     for (let intento = 0; intento <= reintentos; intento++) {
-      if (intento > 0 && esperaReintentoMs > 0) await dormir(esperaReintentoMs);
+      if (intento > 0 && esperaReintentoMs > 0) await dormir(esperaReintentoMs, senal);
+      if (senal?.aborted) throw new ErrorInterrumpido(undefined, { url });
       try {
         const respuesta = await intentar(url, verbo, aceptar);
         respuesta.intentos = intento + 1;
@@ -453,8 +602,18 @@ function nuevaPagina(ruta, url) {
     age: null,
     sondeos: 0,
     errores: 0,
+    /** Errores de red seguidos en los últimos sondeos (0 si el último respondió). */
+    fallosSeguidos: 0,
+    ultimoError: null,
     statusVistos: {},
     sinTitulo: 0,
+    /** Respuestas con el título pero sin el enlace al detalle de esta noticia (otra noticia o copia vieja). */
+    sinEnlace: 0,
+    /** Respuestas con la noticia descartadas porque la copia de caché es anterior a la noticia. */
+    copiasViejas: 0,
+    /** Respuestas que terminaron en otra ruta (el portal redirigió). */
+    redirigidas: 0,
+    ultimaRedireccion: null,
     ultimo: null,
   };
 }
@@ -468,6 +627,18 @@ export function evaluar(informe) {
   if (informe.error) {
     return { codigo: CODIGOS.ERROR, resultado: RESULTADOS[3], veredicto: 'sin medición', masLenta: null, mensaje: informe.error };
   }
+  if (!informe.noticia && informe.apiCaida) {
+    // Si la API falla al final no se puede afirmar que la noticia "no apareció".
+    return {
+      codigo: CODIGOS.ERROR,
+      resultado: RESULTADOS[3],
+      veredicto: 'sin medición',
+      masLenta: null,
+      mensaje: `La API dejó de responder bien: ${informe.apiFallosSeguidos === 1 ? 'el último sondeo falló'
+        : `los últimos ${informe.apiFallosSeguidos} sondeos fallaron`} (último: ${informe.ultimoErrorApi}). `
+        + 'No se sabe si la noticia llegó a la API.',
+    };
+  }
   if (!informe.noticia) {
     return {
       codigo: CODIGOS.NO_APARECIO,
@@ -478,6 +649,17 @@ export function evaluar(informe) {
     };
   }
   const faltan = PAGINAS.filter((p) => informe.paginas[p.clave].t === null);
+  const caidas = faltan.filter((p) => informe.paginas[p.clave].fallosSeguidos > 0);
+  if (caidas.length) {
+    return {
+      codigo: CODIGOS.ERROR,
+      resultado: RESULTADOS[3],
+      veredicto: 'sin medición',
+      masLenta: null,
+      mensaje: `El portal dejó de responder: ${caidas.map((p) => `${p.clave} (${informe.paginas[p.clave].ultimoError})`).join('; ')}. `
+        + 'No se sabe si la noticia llegó a mostrarse ahí.',
+    };
+  }
   if (faltan.length) {
     return {
       codigo: CODIGOS.NO_APARECIO,
@@ -519,23 +701,39 @@ export function limiteSugerido(tApi, ventana = ISR_SEGUNDOS) {
 /** Interpretación en lenguaje llano del resultado (lista de frases). */
 export function interpretar(informe) {
   const ideas = [];
-  if (informe.codigo === CODIGOS.ERROR) return ideas;
+  // Error de argumentos o de conexión inicial: el mensaje del resultado ya lo dice todo.
+  if (informe.codigo === CODIGOS.ERROR && informe.error) return ideas;
   const { umbralS, intervaloS } = informe.parametros;
   const ventana = informe.ventanaIsrS || ISR_SEGUNDOS;
   const { paginas, noticia } = informe;
   const ya = informe.yaPublicadaAlIniciar;
 
   if (!noticia) {
-    ideas.push(`La noticia no apareció en la API en ${fmt(informe.duracionS)} s. Revisa en el panel que esté publicada `
-      + '(no en borrador), que su fecha de publicación no sea futura, que el título coincida (se compara sin acentos, '
-      + `mayúsculas ni espacios extra) y que sea del municipio "${informe.slug}".`);
-    if (informe.parecidos?.length) {
-      ideas.push(`En la API hay títulos parecidos: ${informe.parecidos.map((t) => `"${t}"`).join(', ')}. `
-        + 'Si es uno de ellos, repite con ese --titulo exacto.');
+    if (informe.apiCaida) {
+      ideas.push(`La API falló en los últimos ${plural(informe.apiFallosSeguidos, 'sondeo')} (de ${informe.erroresApi} fallidos `
+        + `en total; último: ${informe.ultimoErrorApi}). Con la API fallando no se puede saber si la noticia se publicó: `
+        + 'no es un problema del panel. Revisa el estado del backend (Render / Cloudflare) y repite la medición.');
+    } else {
+      ideas.push(`La noticia no apareció en la API en ${fmt(informe.duracionS)} s. Revisa en el panel que esté publicada `
+        + '(no en borrador), que su fecha de publicación no sea futura, que el título coincida (se compara sin acentos, '
+        + `mayúsculas ni espacios extra) y que sea del municipio "${informe.slug}".`);
+      if (informe.parecidos?.length) {
+        ideas.push(`En la API hay títulos parecidos: ${informe.parecidos.map((t) => `"${t}"`).join(', ')}. `
+          + 'Si es uno de ellos, repite con ese --titulo exacto.');
+      }
+      if (informe.erroresApi) {
+        ideas.push(`${plural(informe.erroresApi, 'sondeo')} de la API fallaron (red o respuesta inválida); `
+          + `el último sí respondió.`);
+      }
     }
-    if (informe.erroresApi) ideas.push(`${plural(informe.erroresApi, 'sondeo')} de la API fallaron por red.`);
     if (informe.interrumpido) ideas.push('Medición interrumpida (Ctrl+C) antes del límite.');
     return ideas;
+  }
+
+  const caidas = PAGINAS.filter((p) => paginas[p.clave].t === null && paginas[p.clave].fallosSeguidos > 0);
+  if (caidas.length) {
+    ideas.push(`El portal dejó de responder (${caidas.map((p) => p.clave).join(', ')}): no se puede afirmar que la noticia `
+      + 'no apareció. Revisa el despliegue en Vercel y repite la medición.');
   }
 
   if (informe.coincidencias > 1) {
@@ -568,9 +766,12 @@ export function interpretar(informe) {
     const faltan = PAGINAS.filter((p) => paginas[p.clave].t === null);
     const observado = Math.max(0, (informe.duracionS ?? 0) - informe.tApi);
     if (observado < ventana + 2 * intervaloS) {
+      const sugerido = limiteSugerido(informe.tApi, ventana);
+      const repetir = informe.interrumpido && sugerido <= informe.parametros.limiteS
+        ? `Repite sin interrumpir (con --limite ${informe.parametros.limiteS} basta)`
+        : `Repite con --limite ${sugerido}`;
       ideas.push(`Solo se observaron ${fmt(observado)} s después de que la noticia apareció en la API; la ventana ISR es de `
-        + `~${ventana} s (+ una visita que dispare la regeneración). Repite con --limite ${limiteSugerido(informe.tApi, ventana)} `
-        + 'para distinguir el ISR de un fallo real.');
+        + `~${ventana} s (+ una visita que dispare la regeneración). ${repetir} para distinguir el ISR de un fallo real.`);
     } else {
       ideas.push(`Pasaron ${fmt(observado)} s desde que apareció en la API (más que la ventana ISR de ~${ventana} s) y aún falta: `
         + `${faltan.map((p) => p.nombre).join(', ')}. No se explica solo con ISR: revisa que el portal consulte el slug `
@@ -596,6 +797,27 @@ export function interpretar(informe) {
   if (detalle.t === null && detalle.sinTitulo) {
     ideas.push('El detalle respondió 200 pero sin el título en el HTML: revisa que la página muestre el título tal como está en la API.');
   }
+  if (detalle.redirigidas) {
+    ideas.push(`El detalle redirigió ${plural(detalle.redirigidas, 'vez', 'veces')} a ${detalle.ultimaRedireccion}: esa respuesta no `
+      + 'cuenta como vista (la página de detalle de esta noticia no existe o redirige a otra página).');
+  }
+  for (const p of PAGINAS) {
+    const pag = paginas[p.clave];
+    if (pag.sinEnlace) {
+      const donde = pag.t === null ? '' : 'antes de aparecer, ';
+      ideas.push(`${p.clave}: ${donde}${pag.sinEnlace === 1 ? '1 respuesta tenía' : `${pag.sinEnlace} respuestas tenían`} el título pero sin enlace a `
+        + `${rutaDetalle(noticia.slug ?? '')}: es otra noticia cuyo título contiene el buscado o una copia vieja con una noticia `
+        + 'anterior del mismo título; no se cuenta como aparición.');
+    }
+    if (pag.copiasViejas) {
+      ideas.push(`${p.clave}: ${pag.copiasViejas === 1 ? '1 respuesta mostraba' : `${pag.copiasViejas} respuestas mostraban`} título y enlace en una copia de caché generada `
+        + 'ANTES de que existiera esta noticia (según age): es una noticia anterior con el mismo título y slug (p. ej. borrada '
+        + 'y vuelta a crear); no se cuenta.');
+    }
+    if (p.clave !== 'detalle' && pag.redirigidas) {
+      ideas.push(`${p.clave}: el portal redirige ${pag.ruta} a ${pag.ultimaRedireccion}; se buscó la noticia en esa página.`);
+    }
+  }
 
   for (const p of PAGINAS) {
     const historial = informe.sondeos.filter((s) => s.objetivo === p.clave && !s.error);
@@ -605,7 +827,7 @@ export function interpretar(informe) {
 
   const erroresPortal = PAGINAS.reduce((suma, p) => suma + paginas[p.clave].errores, 0);
   const errores = erroresPortal + (informe.erroresApi ?? 0);
-  if (errores) ideas.push(`${plural(errores, 'sondeo')} fallaron por red; los tiempos pueden estar inflados.`);
+  if (errores) ideas.push(`${plural(errores, 'sondeo')} fallaron (red o respuesta inválida); los tiempos pueden estar inflados.`);
   if (informe.interrumpido) ideas.push('Medición interrumpida (Ctrl+C) antes de terminar.');
   return ideas;
 }
@@ -631,7 +853,8 @@ export async function medirPublicacion(opciones, deps = {}) {
   const umbralS = opciones.umbralS ?? UMBRAL_POR_DEFECTO_S;
   const timeoutMs = opciones.timeoutMs ?? TIMEOUT_POR_DEFECTO_MS;
 
-  const cliente = crearCliente({ timeoutMs, fetchImpl, esperaReintentoMs });
+  // La señal también llega al cliente: Ctrl+C corta la petición en curso y la espera del reintento.
+  const cliente = crearCliente({ timeoutMs, fetchImpl, esperaReintentoMs, senal });
   const t0 = ahora();
   const seg = () => (ahora() - t0) / 1000;
   const tituloNormalizado = normalizarTitulo(titulo);
@@ -657,13 +880,19 @@ export async function medirPublicacion(opciones, deps = {}) {
     coincidencias: 0,
     parecidos: [],
     tApi: null,
+    /** Inicio (s) del último sondeo en que la API respondió SIN la noticia; null si ya estaba al iniciar. */
+    tApiSinNoticia: null,
     paginas: {
       home: nuevaPagina(RUTA_HOME, urlPortal(portal, RUTA_HOME)),
       acciones: nuevaPagina(RUTA_ACCIONES, urlPortal(portal, RUTA_ACCIONES)),
       detalle: nuevaPagina(null, null),
     },
     ventanaIsrS: ISR_SEGUNDOS,
+    /** Sondeos de la API fallidos: red, status distinto de 200 o respuesta que no es un array JSON. */
     erroresApi: 0,
+    apiFallosSeguidos: 0,
+    ultimoErrorApi: null,
+    apiCaida: false,
     avisos: [],
     sondeos: [],
     interrumpido: false,
@@ -683,14 +912,21 @@ export async function medirPublicacion(opciones, deps = {}) {
     avisar(`título corto ("${tituloNormalizado}"): puede coincidir con otro texto del portal; usa uno más largo y único.`);
   }
 
+  const fallaApi = (mensaje) => {
+    informe.erroresApi++;
+    informe.apiFallosSeguidos++;
+    informe.ultimoErrorApi = mensaje;
+  };
+
   async function sondearApi(primera) {
     const url = informe.urls.noticias;
+    const inicio = seg();
     let r;
     try {
       r = await cliente.pedir(url);
     } catch (err) {
       if (!(err instanceof ErrorRed)) throw err;
-      informe.erroresApi++;
+      fallaApi(err.message);
       registrar({ objetivo: 'api', t: redondear(seg()), url, error: err.message });
       if (primera) throw new ErrorMedicion(`No se pudo consultar la API (${url}): ${err.message}.`);
       return;
@@ -700,6 +936,8 @@ export async function medirPublicacion(opciones, deps = {}) {
     const json = parsearJson(r.texto);
     if (r.status !== 200 || !json.ok || !Array.isArray(json.valor)) {
       const detalle = r.status === 200 ? 'respuesta que no es un array JSON' : describirRespuesta(r);
+      // Un 404/5xx o un cuerpo inválido a media medición también es un fallo de la API (no "aún no").
+      fallaApi(detalle);
       registrar({ ...base, detalle });
       if (!primera) return;
       if (esMunicipioInexistente(r.status, r.texto)) {
@@ -708,9 +946,11 @@ export async function medirPublicacion(opciones, deps = {}) {
       }
       throw new ErrorMedicion(`La API respondió ${detalle} en ${url}; no se puede medir.`);
     }
+    informe.apiFallosSeguidos = 0;
     const lista = json.valor;
     const coincidencias = buscarNoticias(lista, titulo);
     if (!coincidencias.length) {
+      informe.tApiSinNoticia = redondear(inicio);
       const parecidos = titulosParecidos(lista, titulo);
       if (parecidos.length) informe.parecidos = parecidos;
       registrar({ ...base, total: lista.length, coincidencia: null, parecidos });
@@ -742,8 +982,35 @@ export async function medirPublicacion(opciones, deps = {}) {
       informe.paginas.detalle.url = urlPortal(portal, ruta);
       informe.urls.detalle = informe.paginas.detalle.url;
     } else {
-      avisar('la noticia no trae slug en la API: no se puede pedir la página de detalle.');
+      avisar('la noticia no trae slug en la API: no se puede pedir la página de detalle ni exigir su enlace en portada '
+        + 'y listado (ahí se busca solo el título, que puede confundirse con otra noticia).');
     }
+  }
+
+  /**
+   * ¿La respuesta muestra ESTA noticia? Devuelve { aparece, enlace, motivo }. Reglas:
+   *  - detalle: el título en el HTML, y que la respuesta no venga de una redirección a otra ruta
+   *    (p. ej. 307 al listado, que sí trae el título);
+   *  - portada y listado: el título Y el enlace a /acciones-de-gobierno/noticias/<slug>;
+   *  - en todas: la copia de caché no puede ser anterior a la noticia (age).
+   */
+  function analizarRespuesta(clave, r, t, cache) {
+    const n = informe.noticia;
+    const esDetalle = clave === 'detalle';
+    const redirigida = rutaRedirigida(r.url, informe.paginas[clave].ruta);
+    if (esDetalle && redirigida) return { aparece: false, enlace: null, redirigida, motivo: `redirigida a ${redirigida}` };
+    const conTitulo = r.ok && htmlContieneTitulo(r.texto, tituloNormalizado);
+    const enlace = esDetalle || !n.slug ? null : (r.ok && htmlEnlazaNoticia(r.texto, n.slug));
+    if (conTitulo && enlace === false) {
+      return { aparece: false, enlace, redirigida, motivo: `título sin enlace a ${rutaDetalle(n.slug)}: otra noticia o copia vieja` };
+    }
+    if (!conTitulo) {
+      return { aparece: false, enlace, redirigida, motivo: enlace ? 'enlaza la noticia, pero sin el título' : null };
+    }
+    const vieja = (informe.yaPublicadaAlIniciar ? null : copiaAnteriorALaNoticia({ age: cache.age, tRespuesta: t, tSinNoticia: informe.tApiSinNoticia }))
+      ?? copiaAnteriorACreacion({ age: cache.age, fechaMs: fechaRespuesta(r.headers), creadoEn: n.creadoEn });
+    if (vieja) return { aparece: false, enlace, redirigida, motivo: vieja, copiaVieja: true };
+    return { aparece: true, enlace, redirigida, motivo: null };
   }
 
   async function sondearPagina(clave) {
@@ -754,21 +1021,32 @@ export async function medirPublicacion(opciones, deps = {}) {
     } catch (err) {
       if (!(err instanceof ErrorRed)) throw err;
       pagina.errores++;
+      pagina.fallosSeguidos++;
+      pagina.ultimoError = err.message;
       registrar({ objetivo: clave, t: redondear(seg()), url: pagina.url, error: err.message });
       return false;
     }
+    pagina.fallosSeguidos = 0;
+    pagina.ultimoError = null;
     const t = seg();
     const cache = cabecerasCache(r.headers);
     if (cache.staleTime && cache.staleTime > 0) informe.ventanaIsrS = cache.staleTime;
-    const conTitulo = r.ok && htmlContieneTitulo(r.texto, tituloNormalizado);
+    const analisis = analizarRespuesta(clave, r, t, cache);
+    const { aparece } = analisis;
     pagina.sondeos++;
     pagina.statusVistos[r.status] = (pagina.statusVistos[r.status] ?? 0) + 1;
     pagina.ultimo = { status: r.status, xVercelCache: cache.xVercelCache, age: cache.age };
+    if (analisis.redirigida) {
+      pagina.redirigidas++;
+      pagina.ultimaRedireccion = analisis.redirigida;
+    }
+    if (analisis.enlace === false && analisis.motivo) pagina.sinEnlace++;
+    if (analisis.copiaVieja) pagina.copiasViejas++;
     // En el detalle, un 200 sin el título es raro (la URL es de esta noticia); en los listados solo es "aún no".
-    const sinTitulo = clave === 'detalle' && r.status === 200 && !conTitulo;
+    const sinTitulo = clave === 'detalle' && r.status === 200 && !analisis.redirigida && !aparece && !analisis.motivo;
     if (sinTitulo) pagina.sinTitulo++;
-    const tras = conTitulo ? redondear(Math.max(0, t - informe.tApi)) : null;
-    if (conTitulo) {
+    const tras = aparece ? redondear(Math.max(0, t - informe.tApi)) : null;
+    if (aparece) {
       Object.assign(pagina, { t: redondear(t), tras, status: r.status, xVercelCache: cache.xVercelCache, age: cache.age });
     }
     registrar({
@@ -780,8 +1058,11 @@ export async function medirPublicacion(opciones, deps = {}) {
       intentos: r.intentos,
       xVercelCache: cache.xVercelCache,
       age: cache.age,
-      aparece: conTitulo,
-      ...(conTitulo ? { tras } : {}),
+      aparece,
+      ...(aparece ? { tras } : {}),
+      ...(analisis.enlace !== null ? { enlace: analisis.enlace } : {}),
+      ...(analisis.redirigida ? { redirigida: analisis.redirigida } : {}),
+      ...(analisis.motivo ? { motivo: analisis.motivo } : {}),
       ...(sinTitulo ? { sinTitulo: true } : {}),
     });
     return true;
@@ -806,8 +1087,12 @@ export async function medirPublicacion(opciones, deps = {}) {
       }
       if (informe.noticia) {
         const claves = pendientes();
-        // Como mucho 3 peticiones en paralelo (portada, listado y detalle).
-        const respondieron = await Promise.all(claves.map((c) => sondearPagina(c)));
+        // Como mucho 3 peticiones en paralelo (portada, listado y detalle). allSettled: si hay un
+        // Ctrl+C, se espera a que las tres se corten antes de armar el resumen.
+        const resultados = await Promise.allSettled(claves.map((c) => sondearPagina(c)));
+        const fallida = resultados.find((x) => x.status === 'rejected');
+        if (fallida) throw fallida.reason;
+        const respondieron = resultados.map((x) => x.value);
         if (primeraPortal && claves.length && respondieron.every((ok) => !ok)) {
           throw new ErrorMedicion(`No se pudo conectar con el portal (${portal}): ninguna página respondió.`);
         }
@@ -825,10 +1110,13 @@ export async function medirPublicacion(opciones, deps = {}) {
       }
     }
   } catch (err) {
-    if (!(err instanceof ErrorMedicion)) throw err;
-    informe.error = err.message;
+    if (err instanceof ErrorInterrumpido) informe.interrumpido = true;
+    else if (err instanceof ErrorMedicion) informe.error = err.message;
+    else throw err;
   }
 
+  // Si la API seguía fallando al terminar, "no apareció" no está demostrado (código 3).
+  informe.apiCaida = !informe.noticia && informe.apiFallosSeguidos > 0;
   informe.duracionS = redondear(seg());
   informe.peticiones = cliente.peticiones;
   informe.tiempos = {
@@ -900,8 +1188,11 @@ export function formatearEvento(e, { color = false } = {}) {
   let texto = `${e.status}`;
   const cache = describirCacheBreve(e);
   if (cache) texto += ` · ${cache}`;
+  // En el detalle la redirección ya va en el motivo; en portada/listado solo se informa.
+  if (e.redirigida && !e.motivo?.includes(e.redirigida)) texto += ` · redirigida a ${e.redirigida}`;
   if (e.aparece) texto += ` · ${p.verde('APARECE')} (+${fmt(e.tras)} s tras la API)`;
   else if (e.sinTitulo) texto += ` · ${p.amarillo('200 sin el título')}`;
+  else if (e.motivo) texto += ` · ${p.amarillo('aún no')} (${e.motivo})`;
   else texto += ` · ${p.amarillo('aún no')}`;
   return `${marca} ${objetivo} ${texto}${duracion}`;
 }
@@ -916,6 +1207,8 @@ export function formatearResumen(informe, { color = false } = {}) {
     if (n) {
       const nota = informe.yaPublicadaAlIniciar ? 'ya estaba publicada al iniciar · ' : '';
       lineas.push(`  t_api       = ${fmt(informe.tApi).padStart(6)} s  ${nota}slug ${n.slug ?? '—'} · id ${n.id ?? '—'}`);
+    } else if (informe.apiCaida) {
+      lineas.push(`  t_api       = ${'—'.padStart(6)}    ${p.rojo(`sin dato: la API falló en los últimos ${plural(informe.apiFallosSeguidos, 'sondeo')}`)}`);
     } else {
       lineas.push(`  t_api       = ${'—'.padStart(6)}    ${p.rojo('no apareció en la API')}`);
     }
@@ -928,9 +1221,16 @@ export function formatearResumen(informe, { color = false } = {}) {
       } else if (!n) {
         lineas.push(`  ${etiqueta} = ${'—'.padStart(6)}    sin medir (la noticia no llegó a la API)`);
       } else {
-        const ultimo = pag.ultimo ? `; último: ${pag.ultimo.status}${describirCacheBreve(pag.ultimo) ? ` ${describirCacheBreve(pag.ultimo)}` : ''}` : '';
+        const ultimo = pag.fallosSeguidos
+          ? `; último: ${pag.ultimoError}`
+          : pag.ultimo ? `; último: ${pag.ultimo.status}${describirCacheBreve(pag.ultimo) ? ` ${describirCacheBreve(pag.ultimo)}` : ''}` : '';
         const errores = pag.errores ? `, ${plural(pag.errores, 'error', 'errores')} de red` : '';
-        const motivo = pag.url ? `${plural(pag.sondeos, 'sondeo')}${errores}${ultimo}` : 'sin URL de detalle';
+        const descartes = [
+          pag.sinEnlace ? `${pag.sinEnlace} sin enlace a la noticia` : '',
+          pag.copiasViejas ? `${plural(pag.copiasViejas, 'copia anterior', 'copias anteriores')} a la noticia` : '',
+          pag.redirigidas && def.clave === 'detalle' ? plural(pag.redirigidas, 'redirigida', 'redirigidas') : '',
+        ].filter(Boolean).map((x) => `, ${x}`).join('');
+        const motivo = pag.url ? `${plural(pag.sondeos, 'sondeo')}${errores}${descartes}${ultimo}` : 'sin URL de detalle';
         lineas.push(`  ${etiqueta} = ${'—'.padStart(6)}    ${p.rojo('no apareció')} (${motivo})`);
       }
     }
@@ -967,15 +1267,16 @@ USO
 
 OPCIONES
   --slug slug          Municipio (distingue mayúsculas), p. ej. villapesqueira.
-  --portal URL         Portal del municipio, p. ej. https://villapesqueira.vercel.app
+  --portal URL         Dominio del portal, p. ej. https://villapesqueira.vercel.app (solo el
+                       dominio: sin ruta, sin "?parámetros" y sin "#ancla").
   --titulo "texto"     Título de la noticia. Se compara normalizado: sin acentos, en minúsculas
                        y con espacios colapsados (en la API, título idéntico; en el HTML, que lo
                        contenga, resolviendo entidades como &amp; &oacute; &#x27;).
-  --limite s           Segundos máximos desde el arranque (por defecto ${LIMITE_POR_DEFECTO_S}).
-  --intervalo s        Segundos entre sondeos (por defecto ${INTERVALO_POR_DEFECTO_S}; admite decimales).
+  --limite s           Segundos máximos desde el arranque (por defecto ${LIMITE_POR_DEFECTO_S}; máx. ${MAX_LIMITE_S}).
+  --intervalo s        Segundos entre sondeos (por defecto ${INTERVALO_POR_DEFECTO_S}; admite decimales; máx. ${MAX_INTERVALO_S}).
   --umbral s           Meta después de aparecer en la API (por defecto ${UMBRAL_POR_DEFECTO_S}).
   --api URL            Base de la API (por defecto ${API_POR_DEFECTO}).
-  --timeout ms         Tiempo máximo por petición (por defecto ${TIMEOUT_POR_DEFECTO_MS}).
+  --timeout ms         Tiempo máximo por petición (por defecto ${TIMEOUT_POR_DEFECTO_MS}; máx. ${MAX_TIMEOUT_MS}).
                        Se reintenta 1 vez ante error de red, timeout o 5xx.
   --json               Informe JSON en stdout (el progreso se escribe en stderr).
   --ayuda, -h          Muestra esta ayuda.
@@ -986,16 +1287,26 @@ QUÉ HACE (todo GET)
   2. Desde t_api sondea <portal>/ (t_home) y <portal>${RUTA_ACCIONES} (t_acciones) sin
      parámetros extra (para no saltarse la caché ISR) y anota x-vercel-cache y age de la
      respuesta en la que apareció. /noticias no se usa: en estos portales es 404.
+     Ahí cuenta como aparición solo si está el título Y el enlace a
+     ${RUTA_ACCIONES}/noticias/<slug> de ESTA noticia (el título solo puede ser el de
+     otra noticia que lo contiene o el de una anterior con el mismo título).
   3. Solo cuando la noticia ya está en la API pide el detalle
      <portal>${RUTA_ACCIONES}/noticias/<slug> (t_detalle y su status): un 404 pedido
-     antes quedaría en la caché de Vercel >= 15 min y arruinaría la prueba.
-  4. Termina cuando las tres páginas la muestran o al llegar a --limite.
+     antes quedaría en la caché de Vercel >= 15 min y arruinaría la prueba. Una
+     redirección del detalle a otra página no cuenta como vista.
+  4. En las tres páginas descarta las copias de caché generadas antes de que existiera la
+     noticia (según age, el último sondeo de la API sin ella y creadoEn).
+  5. Termina cuando las tres páginas la muestran o al llegar a --limite.
 
 CÓDIGOS DE SALIDA
   0  las tres páginas la mostraron <= --umbral s (${UMBRAL_POR_DEFECTO_S}) después de t_api
   1  aparecieron, pero alguna tardó más de --umbral s
-  2  no apareció (en la API o en alguna página) antes de --limite
-  3  error de red (API o portal inalcanzable) o de argumentos (p. ej. municipio inexistente)
+  2  no apareció (en la API o en alguna página) antes de --limite (o de Ctrl+C)
+  3  error de red (API o portal inalcanzable, o que dejaron de responder al final) o de
+     argumentos (p. ej. municipio inexistente)
+
+REQUISITOS
+  Node >= 18.3 (fetch global y util.parseArgs); las pruebas, Node >= 18.6.
 
 INTERPRETACIÓN
   ~${ISR_SEGUNDOS} s o más => probablemente no hay revalidación bajo demanda: el portal depende del ISR
@@ -1011,15 +1322,19 @@ EJEMPLOS
 `;
 }
 
-function traducirErrorParseArgs(err) {
+export function traducirErrorParseArgs(err) {
   const mensaje = String(err?.message ?? err);
-  const opcion = mensaje.match(/'(-{1,2}[^' ]+)/)?.[1] ?? '';
+  // "Option '--slug <value>' argument missing", "Option '-h, --ayuda' does not take an argument"...
+  const opcion = mensaje.match(/'(?:-[A-Za-z], )?(-{1,2}[^' ,<]+)/)?.[1] ?? '';
   switch (err?.code) {
     case 'ERR_PARSE_ARGS_UNKNOWN_OPTION':
       return `Opción desconocida: ${opcion || mensaje}`;
     case 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE':
       if (/ambiguous/i.test(mensaje)) {
         return `El valor de ${opcion} empieza con "-": escríbelo como ${opcion}="valor".`;
+      }
+      if (/does not take an argument/i.test(mensaje)) {
+        return `La opción ${opcion} no lleva valor (usa solo ${opcion}).`;
       }
       return `La opción ${opcion || ''} requiere un valor.`.replace('  ', ' ');
     case 'ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL':
@@ -1029,11 +1344,14 @@ function traducirErrorParseArgs(err) {
   }
 }
 
-function leerSegundos(valor, opcion) {
+function leerSegundos(valor, opcion, maximo) {
   const texto = String(valor).trim().replace(',', '.');
   const n = Number(texto);
   if (!texto || !Number.isFinite(n) || n <= 0) {
     throw new ErrorUso(`${opcion} debe ser un número de segundos mayor que 0 (recibido: "${valor}").`);
+  }
+  if (maximo !== undefined && n > maximo) {
+    throw new ErrorUso(`${opcion} no puede pasar de ${maximo} s (recibido: "${valor}").`);
   }
   return n;
 }
@@ -1042,8 +1360,11 @@ function leerSegundos(valor, opcion) {
 export function analizarArgumentos(argv) {
   let valores;
   let posicionales;
+  if (typeof util.parseArgs !== 'function') {
+    throw new ErrorUso(`este Node (${process.version}) no tiene util.parseArgs: se requiere Node >= 18.3.`);
+  }
   try {
-    ({ values: valores, positionals: posicionales } = parseArgs({
+    ({ values: valores, positionals: posicionales } = util.parseArgs({
       args: argv,
       allowPositionals: true,
       strict: true,
@@ -1094,14 +1415,18 @@ export function analizarArgumentos(argv) {
   if (!normalizarTitulo(valores.titulo)) throw new ErrorUso('--titulo no puede estar vacío.');
   opciones.titulo = valores.titulo.trim();
 
-  if (valores.limite !== undefined) opciones.limiteS = leerSegundos(valores.limite, '--limite');
-  if (valores.intervalo !== undefined) opciones.intervaloS = leerSegundos(valores.intervalo, '--intervalo');
-  if (valores.umbral !== undefined) opciones.umbralS = leerSegundos(valores.umbral, '--umbral');
+  if (valores.limite !== undefined) opciones.limiteS = leerSegundos(valores.limite, '--limite', MAX_LIMITE_S);
+  if (valores.intervalo !== undefined) opciones.intervaloS = leerSegundos(valores.intervalo, '--intervalo', MAX_INTERVALO_S);
+  if (valores.umbral !== undefined) opciones.umbralS = leerSegundos(valores.umbral, '--umbral', MAX_LIMITE_S);
   if (valores.api !== undefined) opciones.api = normalizarBaseApi(valores.api);
   if (valores.timeout !== undefined) {
     const ms = Number(valores.timeout);
     if (!/^\d+$/.test(valores.timeout.trim()) || !Number.isSafeInteger(ms) || ms <= 0) {
       throw new ErrorUso(`--timeout debe ser un entero positivo en milisegundos (recibido: "${valores.timeout}").`);
+    }
+    // setTimeout recorta a 1 ms todo lo que pase de 2^31-1 ms: mejor un tope razonable y explícito.
+    if (ms > MAX_TIMEOUT_MS) {
+      throw new ErrorUso(`--timeout no puede pasar de ${MAX_TIMEOUT_MS} ms (10 min) (recibido: "${valores.timeout}").`);
     }
     opciones.timeoutMs = ms;
   }
@@ -1123,6 +1448,16 @@ export async function main(argv = process.argv.slice(2), entorno = {}) {
     ahora,
   } = entorno;
 
+  // Antes que nada (incluso --ayuda): en Node < 18.3 falta util.parseArgs y en < 18 falta fetch.
+  const faltan = [
+    typeof util.parseArgs !== 'function' ? 'util.parseArgs' : null,
+    typeof fetchImpl !== 'function' ? 'fetch global' : null,
+  ].filter(Boolean);
+  if (faltan.length) {
+    stderr.write(`Error: este Node (${process.version}) no tiene ${faltan.join(' ni ')}; se requiere Node >= 18.3.\n`);
+    return CODIGOS.ERROR;
+  }
+
   let opciones;
   try {
     opciones = analizarArgumentos(argv);
@@ -1134,10 +1469,6 @@ export async function main(argv = process.argv.slice(2), entorno = {}) {
   if (opciones.ayuda) {
     stdout.write(textoAyuda());
     return 0;
-  }
-  if (typeof fetchImpl !== 'function') {
-    stderr.write('Error: este Node no tiene fetch global; se requiere Node >= 18.\n');
-    return CODIGOS.ERROR;
   }
 
   // Con --json el progreso va a stderr para que stdout sea JSON puro.

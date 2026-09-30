@@ -93,6 +93,12 @@ Otras comprobaciones:
   - 13 de 14 usan `nombre = "H. Ayuntamiento de X"`. Aconchi es la excepción: `"Municipio de Aconchi"`.
   - Los 14 tienen `dominio`. **Villa Pesqueira será el primer municipio con `dominio = null`.**
 - **Aislamiento en la superficie pública:** es correcto. Pedir una noticia, un atractivo o un funcionario de carbo bajo la ruta de sanjavier (y al revés) siempre da 404. Todos los `municipioId` de cada lista coinciden con el id de su municipio.
+- **Línea base de aislamiento antes del alta:** `aislamiento-publico.mjs --incluir villapesqueira --muestras 2` sobre los 14 municipios.
+  - Resultado: **0 fugas, 0 errores**, 276 peticiones GET en 38.9 s, código 0. Villa Pesqueira se omitió con un aviso porque todavía no existe.
+  - Hubo una coincidencia legítima: Carbó y Baviácora tienen cada uno su propia noticia con el slug `consejo-municipal-de-participacion-escolar`, con ids distintos.
+  - Después del alta se repite el mismo comando, que debe seguir dando 0.
+- **`verificar-alta.mjs`, control con Carbó:** 22 OK, 0 avisos, 0 fallas, código 0. Con Villa Pesqueira devuelve código 2 (`ALTA_PENDIENTE`), que es lo esperado.
+- **`barrido-portal.mjs` sobre el portal de Villa Pesqueira:** revisó 12 rutas, 28 chunks JS, 2 CSS, sitemap y robots con 62 términos. Sin restos, código 0.
 - **CORS:** la API no concede `Access-Control-Allow-Origin` a ningún origen, ni siquiera a los dominios propios. No afecta a Villa Pesqueira por dos razones: el portal renderiza en el servidor, y el formulario de contacto envía a `api.web3forms.com`, no a la API.
 
 ### 2.3 Cloudinary, Cloudflare y DNS

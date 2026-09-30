@@ -19,7 +19,7 @@ cp -R para-cmsmunicipal/scripts/. ~/Developer/cmsmunicipal/scripts/
 Para correr las pruebas:
 
 ```bash
-node --test para-cmsmunicipal/scripts/
+node --test para-cmsmunicipal/scripts/*/*.test.mjs   # funciona en Node 18, 20 y 22 (desde Node 21, pasar una carpeta ya no sirve)
 ```
 
 Por qué viven aquí: la sesión que los generó solo tenía acceso a este repositorio, no a `NorthaDigital/cmsmunicipal`.

@@ -1,15 +1,21 @@
 // Pruebas de medir-publicacion.mjs con node:test y un servidor HTTP local (node:http, puerto 0)
 // que simula la API de CMS Municipal y el portal Next.js, incluidos casos de fallo.
-// Ejecutar:
+// Ejecutar (Node >= 18.6):
 //   node --test scripts/verificacion/
 
-import { test, describe } from 'node:test';
+import * as nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import * as mp from './medir-publicacion.mjs';
+
+const { test } = nodeTest;
+// describe() llegó a node:test en Node 18.6: en versiones anteriores cada bloque se marca como omitido
+// con el motivo, en vez de fallar la carga del archivo con un SyntaxError en inglés.
+const describe = nodeTest.describe
+  ?? ((nombre) => test(nombre, { skip: `se requiere Node >= 18.6 para estas pruebas (este es ${process.version})` }));
 
 const SCRIPT = fileURLToPath(new URL('./medir-publicacion.mjs', import.meta.url));
 const ID_MUNICIPIO = '11111111-2222-4333-8444-555555555555';
@@ -34,16 +40,21 @@ const NOTICIAS_BASE = [
   { id: 'n-vieja-2', titulo: 'Jornada de salud', slug: 'jornada-de-salud', extracto: null, imagenUrl: null, categoria: 'general', publicarEn: '2026-09-18T00:00:00.000Z', creadoEn: '2026-09-18T10:00:00.000Z' },
 ];
 
-function noticiaDe(titulo, slug = 'prueba-villa-pesqueira') {
-  return { id: ID_NOTICIA, titulo, slug, extracto: null, imagenUrl: null, categoria: 'general', publicarEn: '2026-09-30T00:00:00.000Z', creadoEn: '2026-09-30T18:00:00.000Z' };
+/** creadoEn relativo al reloj de quien corre las pruebas (la verificación de copias viejas lo compara con Date). */
+const haceUnaHora = () => new Date(Date.now() - 3_600_000).toISOString();
+
+function noticiaDe(titulo, slug = 'prueba-villa-pesqueira', { id = ID_NOTICIA, creadoEn = haceUnaHora() } = {}) {
+  return { id, titulo, slug, extracto: null, imagenUrl: null, categoria: 'general', publicarEn: '2026-09-30T00:00:00.000Z', creadoEn };
 }
 
 function paginaHtml(cuerpo, titulo = 'Portal municipal') {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title></head><body>${cuerpo}</body></html>`;
 }
 
-function listaHtml(titulos) {
-  return titulos.map((t) => `<article><h3>${escaparComoReact(t)}</h3><p>Leer más</p></article>`).join('\n');
+/** Tarjetas como las del portal real: cada título va dentro de un enlace a su detalle. */
+function listaHtml(noticias) {
+  return noticias.map((n) => `<article><a href="/acciones-de-gobierno/noticias/${n.slug}"><h3>${escaparComoReact(n.titulo)}</h3>`
+    + '<p>Leer más</p></a></article>').join('\n');
 }
 
 /**
@@ -55,7 +66,7 @@ function listaHtml(titulos) {
 function escenarioBase(extra = {}) {
   const titulo = extra.titulo ?? 'Prueba Villa Pesqueira';
   const noticia = extra.noticia ?? noticiaDe(titulo);
-  const conNoticia = (visible) => (visible ? [noticia.titulo] : []).concat(NOTICIAS_BASE.map((n) => n.titulo));
+  const conNoticia = (visible) => (visible ? [noticia] : []).concat(NOTICIAS_BASE);
   return {
     slug: 'villapesqueira',
     noticia,
@@ -112,6 +123,8 @@ async function iniciarServidor(e) {
     registro.push({ metodo: req.method, ruta, t: ahora - estado.t0, noticiaYaEntregada: estado.entregadaEn !== null });
 
     const partes = ruta.split('/').filter(Boolean).map(decodeURIComponent);
+    // Gancho para escenarios especiales (caídas, redirecciones, cuelgues): si devuelve true, ya respondió.
+    if (e.interceptar?.(req, res, { ruta, partes, estado, ahora })) return undefined;
     if (partes[0] === 'api' && partes[1] === 'municipios') {
       const slug = partes[2];
       if (slug !== e.slug) return enviarJson(res, 404, { error: `Municipio '${slug}' no encontrado` });
@@ -192,10 +205,10 @@ function flujo({ tty = false } = {}) {
 }
 
 /** Ejecuta main() en proceso contra el servidor simulado. */
-async function correr(argv, { env = {} } = {}) {
+async function correr(argv, { env = {}, senal } = {}) {
   const stdout = flujo();
   const stderr = flujo();
-  const codigo = await mp.main(argv, { stdout, stderr, env, esperaReintentoMs: 0 });
+  const codigo = await mp.main(argv, { stdout, stderr, env, esperaReintentoMs: 0, senal });
   return { codigo, stdout: stdout.texto, stderr: stderr.texto };
 }
 
@@ -290,6 +303,96 @@ describe('normalización de títulos y HTML', () => {
   });
 });
 
+describe('identidad de la noticia en el HTML: enlace, redirección y edad de la copia', () => {
+  const tarjeta = (slug, titulo = 'x') => `<a href="/acciones-de-gobierno/noticias/${slug}"><h3>${titulo}</h3></a>`;
+
+  test('htmlEnlazaNoticia exige la ruta exacta del detalle de ESE slug', () => {
+    assert.ok(mp.htmlEnlazaNoticia(tarjeta('trabajos-de-limpieza'), 'trabajos-de-limpieza'));
+    assert.ok(!mp.htmlEnlazaNoticia(tarjeta('trabajos-de-limpieza-y-mantenimiento'), 'trabajos-de-limpieza'),
+      'un slug que empieza igual es otra noticia');
+    assert.ok(!mp.htmlEnlazaNoticia(tarjeta('prueba-villa-pesqueira'), 'prueba-villa-pesqueira-2'), 'la prueba anterior borrada');
+    assert.ok(!mp.htmlEnlazaNoticia(tarjeta('prueba-villa-pesqueira-2'), 'prueba-villa-pesqueira'));
+    assert.ok(mp.htmlEnlazaNoticia('<a href="https://carbo.example/acciones-de-gobierno/noticias/abc/">', 'abc'), 'absoluta y con barra final');
+    assert.ok(mp.htmlEnlazaNoticia("<a href='/acciones-de-gobierno/noticias/abc?x=1'>", 'abc'));
+    assert.ok(mp.htmlEnlazaNoticia('self.__next_f.push([1,"{\\"href\\":\\"/acciones-de-gobierno/noticias/abc\\"}"])', 'abc'), 'payload RSC');
+    assert.ok(mp.htmlEnlazaNoticia('<a href=/acciones-de-gobierno/noticias/abc>', 'abc'), 'atributo sin comillas');
+    assert.ok(!mp.htmlEnlazaNoticia('<a href="/noticias/abc">', 'abc'), 'otra ruta');
+    assert.ok(!mp.htmlEnlazaNoticia('<h3>abc</h3>', 'abc'), 'el slug como texto no es un enlace');
+    assert.ok(!mp.htmlEnlazaNoticia(tarjeta('abc'), null));
+    assert.ok(mp.htmlEnlazaNoticia(tarjeta('a.b'), 'a.b'));
+    assert.ok(!mp.htmlEnlazaNoticia(tarjeta('axb'), 'a.b'), 'los caracteres especiales del slug no son comodines');
+  });
+
+  test('tarjeta real del portal de Carbó (enlace + alt + título)', () => {
+    const html = '<div role="group" aria-label="1 de 3: CARBÓ PRESENTE EN LA APERTURA DE AUDITORÍAS INTEGRALES 2025."><a class="group relative block" '
+      + 'href="/acciones-de-gobierno/noticias/carbo-presente-en-la-apertura-de-auditorias-integrales-2025"><img alt="CARBÓ PRESENTE EN LA '
+      + 'APERTURA DE AUDITORÍAS INTEGRALES 2025." decoding="async"/></a></div>';
+    assert.ok(mp.htmlEnlazaNoticia(html, 'carbo-presente-en-la-apertura-de-auditorias-integrales-2025'));
+    assert.ok(mp.htmlContieneTitulo(html, 'Carbó presente en la apertura de auditorías integrales 2025.'));
+    assert.ok(!mp.htmlEnlazaNoticia(html, 'carbo-presente-en-la-apertura'));
+  });
+
+  test('rutaRedirigida: otra ruta sí; mismo camino con otro dominio o barra final no', () => {
+    assert.equal(mp.rutaRedirigida('http://x/acciones-de-gobierno', '/acciones-de-gobierno/noticias/abc'), '/acciones-de-gobierno');
+    assert.equal(mp.rutaRedirigida('https://www.x/acciones-de-gobierno/', '/acciones-de-gobierno'), null);
+    assert.equal(mp.rutaRedirigida('http://x/', '/'), null);
+    assert.equal(mp.rutaRedirigida('http://x/acciones-de-gobierno/noticias/a%20b', '/acciones-de-gobierno/noticias/a%20b'), null);
+    assert.equal(mp.rutaRedirigida('', '/'), null, 'sin URL final (fetch simulado) no hay redirección');
+  });
+
+  test('copiaAnteriorALaNoticia: age frente al último sondeo de la API sin la noticia', () => {
+    assert.match(mp.copiaAnteriorALaNoticia({ age: 120, tRespuesta: 10.2, tSinNoticia: 10 }), /anterior a la noticia \(age=120 s/);
+    assert.match(mp.copiaAnteriorALaNoticia({ age: 5, tRespuesta: 12, tSinNoticia: 10 }), /anterior/, 'generada a más tardar en t=7');
+    assert.equal(mp.copiaAnteriorALaNoticia({ age: 3, tRespuesta: 12, tSinNoticia: 10 }), null, 'dentro del margen');
+    assert.equal(mp.copiaAnteriorALaNoticia({ age: 0, tRespuesta: 10.2, tSinNoticia: 10 }), null);
+    assert.equal(mp.copiaAnteriorALaNoticia({ age: null, tRespuesta: 10.2, tSinNoticia: 10 }), null, 'sin cabecera age');
+    assert.equal(mp.copiaAnteriorALaNoticia({ age: 120, tRespuesta: 10.2, tSinNoticia: null }), null, 'ya publicada al iniciar');
+  });
+
+  test('copiaAnteriorACreacion: Date - age frente a creadoEn (con holgura por relojes)', () => {
+    const fechaMs = Date.parse('2026-09-30T20:00:00Z');
+    assert.match(mp.copiaAnteriorACreacion({ age: 120, fechaMs, creadoEn: '2026-09-30T19:59:00.000Z' }), /anterior a la creación/);
+    assert.equal(mp.copiaAnteriorACreacion({ age: 60, fechaMs, creadoEn: '2026-09-30T19:59:00.000Z' }), null);
+    assert.equal(mp.copiaAnteriorACreacion({ age: 120, fechaMs, creadoEn: '2026-09-26T18:58:51.100Z' }), null, 'noticia vieja');
+    assert.equal(mp.copiaAnteriorACreacion({ age: 120, fechaMs, creadoEn: 'no es fecha' }), null);
+    assert.equal(mp.copiaAnteriorACreacion({ age: 120, fechaMs: null, creadoEn: '2026-09-30T19:59:00.000Z' }), null);
+    assert.equal(mp.fechaRespuesta(new Headers({ date: 'Wed, 30 Sep 2026 20:00:00 GMT' })), fechaMs);
+    assert.equal(mp.fechaRespuesta(new Headers()), null);
+  });
+
+  test('normalizarPortal: solo el origen; rechaza ruta, ?parámetros, #ancla y credenciales', () => {
+    assert.equal(mp.normalizarPortal('HTTPS://Carbo.Example:443/'), 'https://carbo.example');
+    assert.equal(mp.normalizarPortal('villapesqueira.vercel.app'), 'https://villapesqueira.vercel.app');
+    assert.equal(mp.normalizarPortal('http://127.0.0.1:8080//'), 'http://127.0.0.1:8080');
+    const casos = [
+      ['https://carbo.example/#inicio', /#ancla.*usa https:\/\/carbo\.example\./],
+      ['https://carbo.example/?utm=x', /\?parámetros/],
+      ['https://carbo.example?', /\?parámetros/],
+      ['https://carbo.example/acciones-de-gobierno', /sin ruta.*usa https:\/\/carbo\.example\./],
+      ['https://yo:secreto@carbo.example', /usuario ni contraseña/],
+    ];
+    for (const [portal, patron] of casos) {
+      assert.throws(() => mp.normalizarPortal(portal), (err) => err instanceof mp.ErrorUso && patron.test(err.message), portal);
+    }
+  });
+
+  test('normalizarBaseApi: quita /api final; rechaza ?parámetros y #ancla', () => {
+    assert.equal(mp.normalizarBaseApi('http://a/api/'), 'http://a');
+    assert.equal(mp.normalizarBaseApi('https://api.northadigital.com'), 'https://api.northadigital.com');
+    assert.equal(mp.normalizarBaseApi('http://a/proxy/api'), 'http://a/proxy');
+    assert.throws(() => mp.normalizarBaseApi('http://a/?x=1'), /--api no debe llevar/);
+    assert.throws(() => mp.normalizarBaseApi('http://a/api#b'), /--api no debe llevar/);
+  });
+
+  test('urlPortal construye sobre el origen, sin ? ni #', () => {
+    for (const ruta of ['/', '/acciones-de-gobierno', mp.rutaDetalle('prueba-villa-pesqueira')]) {
+      const u = new URL(mp.urlPortal('https://carbo.example', ruta));
+      assert.equal(u.pathname, ruta);
+      assert.equal(u.search + u.hash, '');
+    }
+  });
+});
+
 describe('diagnóstico de caché', () => {
   const s = (t, xVercelCache, age, aparece, status = 200) => ({ t, xVercelCache, age, aparece, status });
 
@@ -333,6 +436,19 @@ describe('evaluar e interpretar', () => {
     assert.equal(mp.evaluar(informe({ home: pagina(null, null), acciones: pagina(21, 11), detalle: pagina(22, 12) })).codigo, 2);
     assert.equal(mp.evaluar(informe({}, { noticia: null })).codigo, 2);
     assert.equal(mp.evaluar(informe({}, { error: 'x' })).codigo, 3);
+  });
+
+  test('API o portal fallando al terminar => código 3, no "no apareció"', () => {
+    const caida = mp.evaluar(informe({}, { noticia: null, apiCaida: true, apiFallosSeguidos: 2, ultimoErrorApi: '404 "Ruta no encontrada"' }));
+    assert.equal(caida.codigo, 3);
+    assert.match(caida.mensaje, /los últimos 2 sondeos fallaron \(último: 404 "Ruta no encontrada"\)/);
+    const detalleCaido = { t: null, tras: null, statusVistos: {}, errores: 3, fallosSeguidos: 2, ultimoError: 'error de red (ECONNRESET)', sinTitulo: 0 };
+    const portal = mp.evaluar(informe({ home: pagina(20, 10), acciones: pagina(21, 11), detalle: detalleCaido }));
+    assert.equal(portal.codigo, 3);
+    assert.match(portal.mensaje, /El portal dejó de responder: detalle \(error de red \(ECONNRESET\)\)/);
+    // Fallos intermedios con el último sondeo bien: sigue siendo "no apareció".
+    const intermitente = mp.evaluar(informe({}, { noticia: null, apiCaida: false, erroresApi: 3, apiFallosSeguidos: 0 }));
+    assert.equal(intermitente.codigo, 2);
   });
 
   test('~300 s o más => sin revalidación bajo demanda, con la pista de /api/revalidate', () => {
@@ -418,6 +534,18 @@ describe('argumentos', () => {
       [[...base, '--desconocida'], /Opción desconocida/],
       [[...base, 'Villa', 'Pesqueira'], /Sobran argumentos/],
       [['--slug', 'a/b', '--portal', 'http://p', '--titulo', 't'], /Slug inválido/],
+      [[...base, '--timeout', '2147483648'], /--timeout no puede pasar de 600000 ms/],
+      [[...base, '--timeout', '600001'], /--timeout no puede pasar/],
+      [[...base, '--limite', '86401'], /--limite no puede pasar de 86400 s/],
+      [[...base, '--intervalo', '3601'], /--intervalo no puede pasar de 3600 s/],
+      [[...base, '--json=false'], /^La opción --json no lleva valor \(usa solo --json\)\.$/],
+      [[...base, '--ayuda=si'], /^La opción --ayuda no lleva valor/],
+      [[...base, '--timeout'], /^La opción --timeout requiere un valor\.$/],
+      [[...base, '--titulo', '-x'], /empieza con "-"/],
+      [[...base, '--portal', 'http://p/#inicio'], /#ancla/],
+      [[...base, '--portal', 'http://p/?utm=x'], /\?parámetros/],
+      [[...base, '--portal', 'http://p/acciones-de-gobierno'], /sin ruta/],
+      [[...base, '--api', 'http://a/?x=1'], /--api no debe llevar/],
     ];
     for (const [argv, patron] of casos) {
       assert.throws(() => mp.analizarArgumentos(argv), (err) => err instanceof mp.ErrorUso && patron.test(err.message), argv.join(' '));
@@ -433,6 +561,24 @@ describe('argumentos', () => {
     assert.match(ayuda.stdout, /USO/);
     assert.match(ayuda.stdout, /\/api\/revalidate/);
     assert.match(ayuda.stdout, /CÓDIGOS DE SALIDA/);
+    assert.match(ayuda.stdout, /Node >= 18\.3/);
+  });
+
+  test('topes aceptados: --timeout 600000, --limite 86400, --intervalo 3600', () => {
+    const o = mp.analizarArgumentos(['--slug', 's', '--portal', 'http://p', '--titulo', 't',
+      '--timeout', '600000', '--limite', '86400', '--intervalo', '3600']);
+    assert.equal(o.timeoutMs, 600000);
+    assert.equal(o.limiteS, 86400);
+    assert.equal(o.intervaloS, 3600);
+  });
+
+  test('sin fetch global (Node viejo): mensaje en español y código 3, incluso con --ayuda', async () => {
+    const stdout = flujo();
+    const stderr = flujo();
+    const codigo = await mp.main(['--ayuda'], { stdout, stderr, env: {}, fetchImpl: null });
+    assert.equal(codigo, 3);
+    assert.match(stderr.texto, /no tiene fetch global; se requiere Node >= 18\.3/);
+    assert.equal(stdout.texto, '');
   });
 });
 
@@ -454,6 +600,36 @@ describe('cliente HTTP', () => {
     const cliente = mp.crearCliente({ timeoutMs: 30, esperaReintentoMs: 0, fetchImpl: fetchLento });
     await assert.rejects(cliente.pedir('http://x'), (err) => err instanceof mp.ErrorRed && /tiempo de espera agotado \(30 ms\) tras 2 intentos/.test(err.message));
     assert.equal(llamadas, 2);
+  });
+
+  test('con senal (Ctrl+C): corta la petición en curso sin esperar el timeout ni reintentar', async () => {
+    const controlador = new AbortController();
+    let llamadas = 0;
+    const fetchColgado = (url, { signal }) => new Promise((_, rechazar) => {
+      llamadas++;
+      signal.addEventListener('abort', () => rechazar(new Error('abortado')));
+    });
+    const cliente = mp.crearCliente({ timeoutMs: 60_000, esperaReintentoMs: 0, fetchImpl: fetchColgado, senal: controlador.signal });
+    setTimeout(() => controlador.abort(), 30);
+    const inicio = Date.now();
+    await assert.rejects(cliente.pedir('http://x'), (err) => err instanceof mp.ErrorInterrumpido && !(err instanceof mp.ErrorRed));
+    assert.ok(Date.now() - inicio < 2000);
+    assert.equal(llamadas, 1, 'no reintenta tras Ctrl+C');
+  });
+
+  test('con senal (Ctrl+C): corta también la espera del reintento', async () => {
+    const controlador = new AbortController();
+    let llamadas = 0;
+    const fetchFalla = async () => {
+      llamadas++;
+      throw new TypeError('fetch failed');
+    };
+    const cliente = mp.crearCliente({ timeoutMs: 1000, esperaReintentoMs: 60_000, fetchImpl: fetchFalla, senal: controlador.signal });
+    setTimeout(() => controlador.abort(), 30);
+    const inicio = Date.now();
+    await assert.rejects(cliente.pedir('http://x'), mp.ErrorInterrumpido);
+    assert.ok(Date.now() - inicio < 2000, 'no espera los 60 s del reintento');
+    assert.equal(llamadas, 1);
   });
 });
 
@@ -610,11 +786,14 @@ describe('medición contra el servidor simulado', () => {
   test('entidades HTML y acentos en el título', async () => {
     const titulo = 'Inauguración del “Parque” Niños & Jóvenes \'Sonora\'';
     const e = escenarioBase({ apiDesdeMs: 100, noticia: noticiaDe(titulo, 'inauguracion-del-parque') });
+    // Portada con enlace absoluto y entidades; listado con enlace relativo, etiquetas y comentarios de React.
     e.portal.home.html = (visible) => paginaHtml(visible
-      ? '<h3>Inauguraci&oacute;n del &ldquo;Parque&rdquo; Ni&#241;os &amp; J&#xF3;venes &#x27;Sonora&#x27;</h3>'
+      ? '<a href="https://portal.example/acciones-de-gobierno/noticias/inauguracion-del-parque"><h3>Inauguraci&oacute;n del '
+        + '&ldquo;Parque&rdquo; Ni&#241;os &amp; J&#xF3;venes &#x27;Sonora&#x27;</h3></a>'
       : '<h3>Otra</h3>');
     e.portal.acciones.html = (visible) => paginaHtml(visible
-      ? '<h3>INAUGURACIÓN DEL <em>“Parque”</em>\n   Niños <!-- -->&amp;<!-- --> Jóvenes &#39;Sonora&#39;</h3>'
+      ? '<a href="/acciones-de-gobierno/noticias/inauguracion-del-parque"><h3>INAUGURACIÓN DEL <em>“Parque”</em>\n   '
+        + 'Niños <!-- -->&amp;<!-- --> Jóvenes &#39;Sonora&#39;</h3></a>'
       : '<h3>Inauguración del “Parque”</h3>');
     e.portal.detalle.html = () => paginaHtml(
       '<div id="raiz"></div><script>self.__next_f.push([1,"{\\"titulo\\":\\"Inauguraci\\u00f3n del \\u201cParque\\u201d Ni\\u00f1os \\u0026 J\\u00f3venes \'Sonora\'\\"}"])</script>',
@@ -649,6 +828,310 @@ describe('medición contra el servidor simulado', () => {
       assert.equal(inf.yaPublicadaAlIniciar, true);
     });
   });
+});
+
+describe('falsos positivos en portada y listado (copias viejas, títulos contenidos, redirecciones)', () => {
+  /** Portada y listado congelados en una copia ISR vieja (HIT age=120) con las noticias dadas. */
+  const congelarListados = (e, noticias) => {
+    for (const clave of ['home', 'acciones']) {
+      e.portal[clave].html = () => paginaHtml(listaHtml(noticias));
+      e.portal[clave].cabeceras = () => ({ 'x-vercel-cache': 'HIT', age: '120' });
+    }
+  };
+
+  test('otra noticia cuyo título CONTIENE el buscado no cuenta (caso real de Carbó) => código 2', async () => {
+    const vieja = noticiaDe('TRABAJOS DE LIMPIEZA Y MANTENIMIENTO', 'trabajos-de-limpieza-y-mantenimiento', { id: 'n-vieja-3' });
+    const e = escenarioBase({ apiDesdeMs: 150, noticia: noticiaDe('TRABAJOS DE LIMPIEZA', 'trabajos-de-limpieza') });
+    congelarListados(e, [vieja, ...NOTICIAS_BASE]);
+    await conServidor(e, async (srv) => {
+      const r = await correr(argumentos(srv.base, ['--titulo', 'Trabajos de limpieza', '--limite', '0.8', '--json']));
+      assert.equal(r.codigo, 2, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.resultado, 'NO_APARECIO');
+      assert.equal(inf.yaPublicadaAlIniciar, false);
+      assert.equal(inf.paginas.home.t, null);
+      assert.equal(inf.paginas.acciones.t, null);
+      assert.notEqual(inf.paginas.detalle.t, null, 'el detalle (ruta nueva) sí la muestra');
+      assert.ok(inf.paginas.home.sinEnlace >= 1 && inf.paginas.acciones.sinEnlace >= 1);
+      const home = inf.sondeos.find((s) => s.objetivo === 'home');
+      assert.equal(home.aparece, false);
+      assert.equal(home.enlace, false);
+      assert.match(home.motivo, /título sin enlace a \/acciones-de-gobierno\/noticias\/trabajos-de-limpieza: otra noticia o copia vieja/);
+      assert.match(inf.interpretacion.join('\n'), /otra noticia cuyo título contiene el buscado/);
+      assert.match(r.stderr, /home\s+200 · HIT age=120 · aún no \(título sin enlace/);
+      afirmarReglasComunes(srv.registro);
+    });
+  });
+
+  test('prueba repetida: la noticia anterior con el mismo título (slug -2) en una copia vieja no cuenta => código 2', async () => {
+    const borrada = noticiaDe('Prueba Villa Pesqueira', 'prueba-villa-pesqueira', { id: 'n-borrada' });
+    const e = escenarioBase({ apiDesdeMs: 150, noticia: noticiaDe('Prueba Villa Pesqueira', 'prueba-villa-pesqueira-2') });
+    congelarListados(e, [borrada, ...NOTICIAS_BASE]);
+    await conServidor(e, async (srv) => {
+      const r = await correr(argumentos(srv.base, ['--limite', '0.8', '--json']));
+      assert.equal(r.codigo, 2, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.noticia.slug, 'prueba-villa-pesqueira-2');
+      assert.equal(inf.paginas.home.t, null);
+      assert.equal(inf.paginas.acciones.t, null);
+      assert.ok(srv.registro.some((x) => x.ruta === '/acciones-de-gobierno/noticias/prueba-villa-pesqueira-2'));
+      assert.ok(!srv.registro.some((x) => x.ruta === '/acciones-de-gobierno/noticias/prueba-villa-pesqueira'), 'nunca pide el detalle de la borrada');
+      afirmarReglasComunes(srv.registro);
+    });
+  });
+
+  test('mismo título y MISMO slug en una copia generada antes de publicar (age) no cuenta => código 2', async () => {
+    // creadoEn de hace una hora: aquí solo actúa la comparación de age con el último sondeo de la API sin la noticia.
+    const e = escenarioBase({ apiDesdeMs: 200 });
+    congelarListados(e, [e.noticia, ...NOTICIAS_BASE]);
+    await conServidor(e, async (srv) => {
+      const r = await correr(argumentos(srv.base, ['--limite', '0.8', '--json']));
+      assert.equal(r.codigo, 2, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.yaPublicadaAlIniciar, false);
+      assert.ok(inf.tApiSinNoticia !== null && inf.tApiSinNoticia < inf.tApi);
+      assert.equal(inf.paginas.home.t, null);
+      assert.ok(inf.paginas.home.copiasViejas >= 1);
+      const home = inf.sondeos.find((s) => s.objetivo === 'home');
+      assert.equal(home.enlace, true, 'título y enlace están, pero la copia es vieja');
+      assert.match(home.motivo, /copia de caché anterior a la noticia \(age=120 s/);
+      assert.match(inf.interpretacion.join('\n'), /generada ANTES de que existiera esta noticia/);
+      assert.notEqual(inf.paginas.detalle.t, null, 'el detalle (MISS, sin age) sí cuenta');
+      afirmarReglasComunes(srv.registro);
+    });
+  });
+
+  test('ya publicada al iniciar y recreada con el mismo slug: copia anterior a creadoEn no cuenta => código 2', async () => {
+    const e = escenarioBase({ apiDesdeMs: 0, noticia: noticiaDe('Prueba Villa Pesqueira', 'prueba-villa-pesqueira', { creadoEn: new Date().toISOString() }) });
+    congelarListados(e, [e.noticia, ...NOTICIAS_BASE]);
+    await conServidor(e, async (srv) => {
+      const r = await correr(argumentos(srv.base, ['--limite', '0.5', '--json']));
+      assert.equal(r.codigo, 2, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.yaPublicadaAlIniciar, true);
+      assert.equal(inf.paginas.home.t, null);
+      assert.match(inf.sondeos.find((s) => s.objetivo === 'home').motivo, /anterior a la creación de la noticia/);
+    });
+  });
+
+  test('copia regenerada después de publicar (age pequeño) sí cuenta', async () => {
+    const e = escenarioBase({ apiDesdeMs: 200 });
+    for (const clave of ['home', 'acciones']) {
+      e.portal[clave].cabeceras = (visible) => (visible ? { 'x-vercel-cache': 'HIT', age: '1' } : { 'x-vercel-cache': 'HIT', age: '120' });
+    }
+    await conServidor(e, async (srv) => {
+      const r = await correr(argumentos(srv.base, ['--json']));
+      assert.equal(r.codigo, 0, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.paginas.home.age, 1);
+      assert.equal(inf.paginas.home.copiasViejas, 0);
+    });
+  });
+
+  test('detalle que redirige (307) al listado no cuenta como visto => código 2', async () => {
+    const e = escenarioBase({ apiDesdeMs: 0 });
+    e.interceptar = (req, res, { partes }) => {
+      if (partes[0] !== 'acciones-de-gobierno' || partes[1] !== 'noticias') return false;
+      enviar(res, 307, '', { location: '/acciones-de-gobierno' });
+      return true;
+    };
+    await conServidor(e, async (srv) => {
+      const r = await correr(argumentos(srv.base, ['--limite', '0.4', '--json']));
+      assert.equal(r.codigo, 2, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.paginas.detalle.t, null);
+      assert.equal(inf.paginas.detalle.status, null);
+      assert.ok(inf.paginas.detalle.redirigidas >= 1);
+      assert.equal(inf.paginas.detalle.ultimaRedireccion, '/acciones-de-gobierno');
+      assert.notEqual(inf.paginas.acciones.t, null, 'el listado sí la muestra');
+      const detalle = inf.sondeos.find((s) => s.objetivo === 'detalle');
+      assert.equal(detalle.aparece, false);
+      assert.equal(detalle.redirigida, '/acciones-de-gobierno');
+      // Status y cabeceras son las de la respuesta final (el listado), pero la línea dice que se redirigió.
+      assert.match(r.stderr, /detalle\s+200 · [A-Z]+ age=\d+ · aún no \(redirigida a \/acciones-de-gobierno\)/);
+      assert.match(inf.interpretacion.join('\n'), /El detalle redirigió \d+ (vez|veces) a \/acciones-de-gobierno/);
+    });
+  });
+
+  test('portada que redirige a otra ruta con la tarjeta enlazada sí cuenta (y se informa)', async () => {
+    const e = escenarioBase({ apiDesdeMs: 0 });
+    e.interceptar = (req, res, { ruta }) => {
+      if (ruta === '/') {
+        enviar(res, 308, '', { location: '/inicio' });
+        return true;
+      }
+      if (ruta === '/inicio') {
+        enviarHtml(res, 200, e.portal.home.html(true), { 'x-vercel-cache': 'MISS', age: '0' });
+        return true;
+      }
+      return false;
+    };
+    await conServidor(e, async (srv) => {
+      const r = await correr(argumentos(srv.base, ['--json']));
+      assert.equal(r.codigo, 0, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.paginas.home.ultimaRedireccion, '/inicio');
+      assert.match(r.stderr, /home\s+200 · MISS age=0 · redirigida a \/inicio · APARECE/);
+      assert.match(inf.interpretacion.join('\n'), /home: el portal redirige \/ a \/inicio/);
+    });
+  });
+
+  test('--portal con #ancla, ?parámetros o ruta => código 3 sin ninguna petición', async () => {
+    await conServidor(escenarioBase({ apiDesdeMs: 0 }), async (srv) => {
+      for (const portal of [`${srv.base}/#inicio`, `${srv.base}/?utm=x`, `${srv.base}/acciones-de-gobierno`]) {
+        const r = await correr(['--slug', 'villapesqueira', '--portal', portal, '--api', srv.base,
+          '--titulo', 'Prueba Villa Pesqueira', '--intervalo', '0.05', '--limite', '0.5']);
+        assert.equal(r.codigo, 3, portal);
+        assert.match(r.stderr, /Error: --portal/);
+      }
+      assert.equal(srv.registro.length, 0);
+    });
+  });
+});
+
+describe('API o portal que dejan de responder a media medición => código 3', () => {
+  /** La API responde bien al primer sondeo (sin la noticia) y después falla según `modo`. */
+  const apiQueCae = (modo) => {
+    const e = escenarioBase({ apiDesdeMs: Infinity });
+    e.interceptar = (req, res, { partes, estado }) => {
+      if (partes[0] !== 'api') return false;
+      estado.n = (estado.n ?? 0) + 1;
+      if (estado.n === 1) return false;
+      if (modo === 'red') req.socket.destroy();
+      else enviarJson(res, 404, { error: 'Ruta no encontrada', path: req.url });
+      return true;
+    };
+    return e;
+  };
+
+  for (const [modo, patron] of [['red', /error de red/], ['404', /404 "Ruta no encontrada"/]]) {
+    test(`la API falla (${modo}) después del primer sondeo => ERROR, sin culpar al panel`, async () => {
+      await conServidor(apiQueCae(modo), async (srv) => {
+        const r = await correr(argumentos(srv.base, ['--intervalo', '0.1', '--limite', '0.5', '--json']));
+        assert.equal(r.codigo, 3, r.stderr);
+        const inf = JSON.parse(r.stdout);
+        assert.equal(inf.resultado, 'ERROR');
+        assert.equal(inf.apiCaida, true);
+        assert.match(inf.mensaje, /La API dejó de responder bien: los últimos \d+ sondeos fallaron/);
+        assert.match(inf.mensaje, patron);
+        assert.ok(inf.erroresApi >= 2);
+        const texto = inf.interpretacion.join('\n');
+        assert.match(texto, /no es un problema del panel/);
+        assert.doesNotMatch(texto, /borrador/);
+        assert.ok(srv.registro.every((x) => x.ruta.startsWith('/api/')), 'sin noticia no se toca el portal');
+      });
+    });
+  }
+
+  test('fallos intermitentes con el último sondeo bien => sigue siendo código 2, con la nota', async () => {
+    const e = escenarioBase({ apiDesdeMs: Infinity });
+    e.interceptar = (req, res, { partes, estado, ahora }) => {
+      const t = ahora - estado.t0;
+      if (partes[0] !== 'api' || t < 100 || t >= 250) return false;
+      enviarJson(res, 503, { error: 'Servicio no disponible' });
+      return true;
+    };
+    await conServidor(e, async (srv) => {
+      const r = await correr(argumentos(srv.base, ['--limite', '0.6', '--json']));
+      assert.equal(r.codigo, 2, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.apiCaida, false);
+      assert.ok(inf.erroresApi >= 1);
+      assert.match(inf.interpretacion.join('\n'), /de la API fallaron \(red o respuesta inválida\); el último sí respondió/);
+    });
+  });
+
+  test('el portal deja de responder después del primer sondeo => código 3', async () => {
+    const e = escenarioBase({ apiDesdeMs: 0 });
+    for (const clave of ['home', 'acciones', 'detalle']) e.portal[clave].retrasoMs = Infinity;
+    e.interceptar = (req, res, { partes, estado, ahora }) => {
+      if (partes[0] === 'api' || ahora - estado.t0 < 150) return false;
+      req.socket.destroy();
+      return true;
+    };
+    await conServidor(e, async (srv) => {
+      const r = await correr(argumentos(srv.base, ['--limite', '0.6', '--json']));
+      assert.equal(r.codigo, 3, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.match(inf.mensaje, /El portal dejó de responder: home \(error de red/);
+      assert.ok(inf.paginas.home.sondeos >= 1, 'el primer sondeo sí respondió');
+    });
+  });
+});
+
+describe('Ctrl+C corta las peticiones en curso', () => {
+  test('portal colgado: termina enseguida como interrumpido (código 2), sin esperar el timeout', async () => {
+    const e = escenarioBase({ apiDesdeMs: 0 });
+    e.interceptar = (req, res, { partes }) => partes[0] !== 'api'; // el portal acepta y nunca responde
+    await conServidor(e, async (srv) => {
+      const controlador = new AbortController();
+      setTimeout(() => controlador.abort(), 300);
+      const inicio = Date.now();
+      const r = await correr(argumentos(srv.base, ['--timeout', '10000', '--limite', '600', '--json']), { senal: controlador.signal });
+      const ms = Date.now() - inicio;
+      assert.ok(ms < 3000, `tardó ${ms} ms en terminar tras Ctrl+C`);
+      assert.equal(r.codigo, 2, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.interrumpido, true);
+      assert.equal(inf.resultado, 'NO_APARECIO');
+      assert.match(inf.mensaje, /antes de la interrupción \(Ctrl\+C/);
+      assert.equal(inf.paginas.home.errores, 0, 'el corte no cuenta como error de red');
+      assert.match(inf.interpretacion.join('\n'), /Repite sin interrumpir/);
+    });
+  });
+
+  test('API colgada en el primer sondeo: interrumpido, no ERROR', async () => {
+    const e = escenarioBase({ apiDesdeMs: 0 });
+    e.interceptar = () => true; // nada responde
+    await conServidor(e, async (srv) => {
+      const controlador = new AbortController();
+      setTimeout(() => controlador.abort(), 200);
+      const inicio = Date.now();
+      const r = await correr(argumentos(srv.base, ['--timeout', '10000', '--json']), { senal: controlador.signal });
+      assert.ok(Date.now() - inicio < 3000);
+      assert.equal(r.codigo, 2, r.stderr);
+      const inf = JSON.parse(r.stdout);
+      assert.equal(inf.interrumpido, true);
+      assert.equal(inf.error, null);
+      assert.equal(inf.erroresApi, 0);
+    });
+  });
+
+  test('como CLI: SIGINT con el portal colgado muestra el resumen y sale con 2 en menos de 3 s',
+    { skip: process.platform === 'win32' ? 'SIGINT no se puede enviar así en Windows' : false }, async () => {
+      const e = escenarioBase({ apiDesdeMs: 0 });
+      e.interceptar = (req, res, { partes }) => partes[0] !== 'api';
+      await conServidor(e, async (srv) => {
+        const hijo = spawn(process.execPath, [SCRIPT, ...argumentos(srv.base, ['--timeout', '10000', '--limite', '30'])],
+          { env: { ...process.env, NO_COLOR: '1' } });
+        let salida = '';
+        hijo.stdout.on('data', (d) => {
+          salida += d;
+        });
+        hijo.stderr.on('data', (d) => {
+          salida += d;
+        });
+        await new Promise((resolver, rechazar) => {
+          const limite = setTimeout(() => rechazar(new Error(`no llegó a sondear el portal:\n${salida}`)), 10_000);
+          const revisar = () => {
+            if (srv.registro.some((x) => x.ruta === '/')) {
+              clearTimeout(limite);
+              resolver();
+            } else {
+              setTimeout(revisar, 20);
+            }
+          };
+          revisar();
+        });
+        const inicio = Date.now();
+        hijo.kill('SIGINT');
+        const codigo = await new Promise((resolver) => hijo.on('close', (c) => resolver(c)));
+        assert.ok(Date.now() - inicio < 3000, `tardó ${Date.now() - inicio} ms tras SIGINT`);
+        assert.equal(codigo, 2, salida);
+        assert.match(salida, /Medición interrumpida \(Ctrl\+C\)/);
+        assert.match(salida, /Resultado: NO_APARECIO \(código 2\)/);
+      });
+    });
 });
 
 describe('errores => código 3', () => {
