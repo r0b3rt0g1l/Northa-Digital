@@ -1,5 +1,6 @@
 // Pruebas de derivar-plantillas.mjs (node:test, sin dependencias).
 // Ejecutar: node --test scripts/herramienta-alta/derivar-plantillas.test.mjs
+// Requiere Node >= 18.20 o 20+ (describe/before/after de node:test). El script en sí funciona desde Node 18.3.
 //
 // IMPORTANTE: los fixtures de abajo son SINTÉTICOS. Imitan contenido plausible
 // para ejercitar la herramienta; NO reflejan el formato real de los archivos de
@@ -27,6 +28,10 @@ import {
   detectarTipoModulo,
   quitarAcentos,
   parsearArgumentos,
+  decodificarConMapa,
+  marcadoresDelSlug,
+  buscarMarcadoresPreexistentes,
+  requisitoNode,
 } from './derivar-plantillas.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./derivar-plantillas.mjs', import.meta.url));
@@ -125,11 +130,11 @@ function fixtureVillaPesqueira(base, nombreDir, sobrescribir = {}) {
   });
 }
 
-function ejecutar(args, cwd) {
+function ejecutar(args, cwd, env = {}) {
   const r = spawnSync(process.execPath, [SCRIPT, ...args], {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: { ...process.env, NO_COLOR: '1', ...env },
   });
   return { codigo: r.status, stdout: r.stdout, stderr: r.stderr };
 }
@@ -623,5 +628,426 @@ describe('CLI end-to-end', () => {
     const slugMalo = ejecutar(['--slug', '../x', '--nombre', 'X'], BASE);
     assert.equal(slugMalo.codigo, 1);
     assert.match(slugMalo.stderr, /--slug inválido/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regresiones de la revisión adversarial (cada bloque cita el problema que cubre)
+// ---------------------------------------------------------------------------
+
+const OPC_VP = { nombre: 'Villa Pesqueira', slug: 'villapesqueira' };
+const resumen = (r) => r.map((x) => `${x.alerta ? 'ALERTA' : x.tipo}:${x.coincidencia}`);
+const sinFiltrar = (r, secreto) => {
+  for (const x of r) {
+    assert.ok(!x.coincidencia.includes(secreto), `coincidencia filtra ${secreto}: ${x.coincidencia}`);
+    assert.ok(!x.contexto.includes(secreto), `contexto filtra ${secreto}: ${x.contexto}`);
+  }
+};
+
+describe('revisión: secretos (alerta y ocultación)', () => {
+  test('contraseña numérica en JSON: ALERTA, sin residuo "número" y sin filtrar el valor', () => {
+    for (const linea of ['  "password": 48213377,', '  "password": 90817263,', '"password": 12345678']) {
+      const r = detectarResiduos(linea, { ...OPC_VP, archivo: 'plantilla-operador.json' });
+      const secreto = /\d{8}/.exec(linea)[0];
+      assert.equal(r.filter((x) => x.alerta).length, 1, linea);
+      assert.ok(!r.some((x) => !x.alerta), `sin otros residuos: ${resumen(r)}`);
+      sinFiltrar(r, secreto);
+    }
+  });
+
+  test('JS: literal de respaldo tras || o ?? y valor en la línea siguiente', () => {
+    const casos = [
+      ["const password = process.env.DB_PASSWORD || 'Hunter2Pesq!';", 'Hunter2Pesq!'],
+      ["  password: process.env.PGPASSWORD || 'SuperSecreta99',", 'SuperSecreta99'],
+      ['  apiKey: process.env.API_KEY ?? "k-2025-abc",', 'k-2025-abc'],
+    ];
+    for (const [linea, secreto] of casos) {
+      const r = detectarResiduos(linea, { ...OPC_VP, archivo: 'plantilla-db-alta.js' });
+      assert.equal(r.filter((x) => x.alerta).length, 1, linea);
+      sinFiltrar(r, secreto);
+    }
+    const r = detectarResiduos("const token =\n  'tok_live_8f7e6d5c4b3a2910';", { archivo: 'plantilla-db-alta.js' });
+    assert.deepEqual(r.map((x) => [x.linea, x.alerta]), [[2, true]]);
+    sinFiltrar(r, 'tok_live');
+    // Sin literal: no es un secreto escrito en el archivo.
+    for (const linea of ['  password: process.env.PGPASSWORD,', 'const secreto = SECRET;', '  password: password,']) {
+      assert.equal(detectarSecretos(linea, 'js').length, 0, linea);
+    }
+  });
+
+  test('texto libre: "Contraseña <palabras>: valor" oculta todo el valor', () => {
+    const casos = [
+      ['Contraseña temporal: Xk9-Pesq-2026', 'Xk9-Pesq-2026'],
+      ['Contraseña inicial: abc12345', 'abc12345'],
+      ['Contraseña (temporal): Xk9 2026', 'Xk9 2026'],
+      ['- Contraseña: Mátape 1629 (temporal)', 'Mátape 1629'],
+      ['Contraseña del correo: `Hola 2025`', 'Hola 2025'],
+      ['**Password:** Pesq#2026', 'Pesq#2026'],
+    ];
+    for (const [linea, secreto] of casos) {
+      const r = detectarResiduos(linea, { ...OPC_VP, archivo: 'plantilla-README-material.md', extra: ['Mátape'] });
+      assert.equal(r.filter((x) => x.alerta).length, 1, linea);
+      assert.ok(!r.some((x) => !x.alerta), `el valor oculto no genera otros residuos: ${linea} -> ${resumen(r)}`);
+      sinFiltrar(r, secreto);
+    }
+    for (const linea of ['La contraseña: se entrega por separado', 'tokenTTL: 3600', 'Contraseña: pendiente']) {
+      assert.equal(detectarSecretos(linea, 'texto').length, 0, linea);
+    }
+  });
+
+  test('tabla Markdown con columna sensible', () => {
+    const tabla = '| Servicio | Usuario | Password |\n|---|---|---|\n| cPanel | vp | Ures#4455 |\n\nOtra línea 4455';
+    const r = detectarResiduos(tabla, { archivo: 'plantilla-README-material.md' });
+    assert.deepEqual(r.filter((x) => x.alerta).map((x) => x.linea), [3]);
+    sinFiltrar(r, 'Ures#4455');
+  });
+
+  test('credenciales en URLs de conexión y parámetros ?token=', () => {
+    const casos = [
+      ["const url = process.env.DATABASE_URL ?? 'postgresql://cms_admin:Pesq2024xZ@db.northa.digital/cmsmunicipal';", 'x.js'],
+      ["const url = 'postgres://cms:Pesq2024xZ@localhost:5432/cmsmunicipal';", 'x.js'],
+      ['"db": "postgres:\\/\\/cms:Pesq2024xZ@localhost\\/cms"', 'x.json'],
+      ['"mapa": "https://api.example.com/v1/map?token=Pesq2024xZ&z=3",', 'x.json'],
+    ];
+    for (const [linea, archivo] of casos) {
+      const r = detectarResiduos(linea, { ...OPC_VP, archivo });
+      assert.equal(r.filter((x) => x.alerta).length, 1, linea);
+      assert.ok(!r.some((x) => x.tipo === 'correo'), `la contraseña no sale como correo: ${resumen(r)}`);
+      sinFiltrar(r, 'Pesq2024xZ');
+    }
+    assert.equal(detectarSecretos("'postgres://cms:${DB_PASS}@localhost/cms'", 'js').length, 0);
+  });
+
+  test('marcadores: {{PASSWORD}} ajeno no alerta; un secreto igual al slug ({{SLUG}}) sí', () => {
+    assert.equal(detectarSecretos('"password": "{{PASSWORD}}"', 'json').length, 0);
+    assert.equal(detectarSecretos('"password": "{{SLUG}}"', 'json').length, 1);
+    assert.equal(detectarSecretos('"descripcion": "Olvidé mi contraseña: escribe a soporte"', 'json').length, 0);
+  });
+
+  test('CLI: secretos numéricos, con respaldo y en texto libre -> ALERTA; nunca salen en consola ni en LEEME', () => {
+    const operador = OPERADOR_VP.replace('"rol": "admin",', '"rol": "admin",\n  "password": 48213377,');
+    const db = DB_ALTA_VP.replace(
+      "'use strict';",
+      "'use strict';\nconst password = process.env.DB_PASSWORD || 'Hunter2Pesq!';\n" +
+        "const url = process.env.DATABASE_URL ?? 'postgresql://cms_admin:Pesq2024xZ@db.northa.digital/cmsmunicipal';",
+    );
+    const material = `${README_VP}Contraseña temporal: Xk9-Pesq-2026\n`;
+    const { raiz } = fixtureVillaPesqueira(BASE, 'rev-secretos', { operador, dbAlta: db, material });
+    const r = ejecutar(['--slug', 'villapesqueira', '--nombre', 'Villa Pesqueira'], raiz);
+    assert.equal(r.codigo, 0, r.stderr);
+    assert.match(r.stderr, /ALERTA DE SEGURIDAD: 4 posible\(s\) secreto\(s\)/);
+    const leeme = fs.readFileSync(path.join(raiz, 'scripts/herramienta-alta/plantillas/LEEME.md'), 'utf8');
+    for (const secreto of ['48213377', 'Hunter2Pesq!', 'Pesq2024xZ', 'Xk9-Pesq-2026']) {
+      assert.ok(!r.stdout.includes(secreto) && !r.stderr.includes(secreto), `consola filtra ${secreto}`);
+      assert.ok(!leeme.includes(secreto), `LEEME filtra ${secreto}`);
+    }
+  });
+});
+
+describe('revisión: nombre/slug tras escapes \\n \\t en JSON/JS', () => {
+  const vp = calcularVariantes('Villa Pesqueira', 'villapesqueira');
+
+  test('sustituir trata la letra del escape como borde', () => {
+    assert.equal(sustituir('{"texto": "Hola\\nVilla Pesqueira es bonita"}', vp).texto, '{"texto": "Hola\\n{{NOMBRE}} es bonita"}');
+    assert.equal(sustituir('"\\tVilla Pesqueira"', vp).texto, '"\\t{{NOMBRE}}"');
+    assert.equal(sustituir('linea\\nvillapesqueira', vp).texto, 'linea\\n{{SLUG}}');
+    // "\\\\n" es una barra escapada seguida de la letra n: ahí NO hay borde.
+    assert.equal(sustituir('"C:\\\\nVillaPesqueira"', vp).texto, '"C:\\\\nVillaPesqueira"');
+    const mapa = crearMapaUuids([UUID_MUNICIPIO]);
+    assert.equal(sustituir(`"a\\b${UUID_MUNICIPIO}"`, [], mapa).texto, '"a\\b{{UUID_1}}"');
+  });
+
+  test('CLI: descripción con saltos de línea escapados queda sustituida y sin residuo', () => {
+    const contrato = JSON.stringify({ nombre: 'Villa Pesqueira', texto: 'Linea 1\nVilla Pesqueira, fundada en 1629' }, null, 2);
+    const { raiz } = fixtureVillaPesqueira(BASE, 'rev-escapes', { contrato, material: null });
+    const r = ejecutar(['--slug', 'villapesqueira', '--nombre', 'Villa Pesqueira'], raiz);
+    assert.equal(r.codigo, 0, r.stderr);
+    const c = JSON.parse(fs.readFileSync(path.join(raiz, 'scripts/herramienta-alta/plantillas/plantilla-contrato.json'), 'utf8'));
+    assert.equal(c.texto, 'Linea 1\n{{NOMBRE}}, fundada en 1629');
+    assert.doesNotMatch(r.stdout, /resto del nombre/);
+  });
+});
+
+describe('revisión: residuos escritos codificados y entradas que no son UTF-8', () => {
+  const bacad = { nombre: 'Bacadéhuachi', slug: 'bacadehuachi' };
+
+  test('\\uXXXX (JSON/JS), entidades HTML y percent-encoding', () => {
+    const casos = [
+      ['{"nombre": "Bacad\\u00e9huachi"}', 'plantilla-contrato.json', bacad, ['nombre:Bacad\\u00e9huachi']],
+      ['{"hero": "Tierra de M\\u00e1tape"}', 'plantilla-contrato.json', { ...OPC_VP, extra: ['Mátape'] }, ['extra:M\\u00e1tape']],
+      [
+        '<p>Bienvenidos a Bacad&eacute;huachi y M&aacute;tape</p>',
+        'plantilla-README-material.md',
+        { ...bacad, extra: ['Mátape'] },
+        ['nombre:Bacad&eacute;huachi', 'extra:M&aacute;tape'],
+      ],
+      ["const n = 'Bacad\\u00e9huachi';", 'plantilla-db-alta.js', bacad, ['nombre:Bacad\\u00e9huachi']],
+      [
+        'https://x.mx/M%C3%A1tape y M%E1tape y Bacad&#233;huachi',
+        'plantilla-README-material.md',
+        { ...bacad, extra: ['Mátape'] },
+        ['extra:M%C3%A1tape', 'extra:M%E1tape', 'nombre:Bacad&#233;huachi'],
+      ],
+    ];
+    for (const [linea, archivo, opc, esperado] of casos) {
+      const r = detectarResiduos(linea, { ...opc, archivo });
+      assert.deepEqual(resumen(r), esperado, linea);
+      assert.ok(r.every((x) => /codificado/.test(x.motivo)), 'el motivo indica que está codificado');
+    }
+    const d = decodificarConMapa('a\\u00e9b', 'json');
+    assert.equal(d.texto, 'aéb');
+    assert.deepEqual([d.ini[1], d.fin[1]], [1, 7]);
+    assert.equal(decodificarConMapa('a\\u00e9b', 'texto').texto, 'a\\u00e9b', 'en texto no se decodifican escapes JS');
+  });
+
+  test('CLI: README en Latin-1 se omite con aviso (no se escribe una plantilla corrupta)', () => {
+    const { raiz, rutas } = fixtureVillaPesqueira(BASE, 'rev-latin1', { material: null });
+    fs.mkdirSync(path.dirname(rutas.material), { recursive: true });
+    fs.writeFileSync(rutas.material, Buffer.from('# VILLA PESQUEIRA\n\nLocalidad: M\xe1tape.\n', 'latin1'));
+    const r = ejecutar(['--slug', 'villapesqueira', '--nombre', 'Villa Pesqueira', '--extra', 'Mátape'], raiz);
+    assert.equal(r.codigo, 0, r.stderr);
+    assert.match(r.stderr, /no es UTF-8 válido; conviértelo/);
+    const salida = path.join(raiz, 'scripts/herramienta-alta/plantillas');
+    assert.ok(!fs.existsSync(path.join(salida, 'plantilla-README-material.md')));
+    assert.match(fs.readFileSync(path.join(salida, 'LEEME.md'), 'utf8'), /plantilla-README-material\.md` no generada \(no es UTF-8 válido\)/);
+  });
+});
+
+describe('revisión: números tras coma, punto o #', () => {
+  test('listas sin espacios, JSON minificado y direcciones', () => {
+    const casos = [
+      ["VALUES ('{{UUID_1}}','{{NOMBRE}}','{{SLUG}}',1043,1124.3,1629)", ['numero:1043', 'numero:1124.3', 'anio:1629']],
+      ['{"hitos":["Fundación",1629],"poblacion":["INEGI 2020",1043]}', ['anio:1629', 'anio:2020', 'numero:1043']],
+      ['"Calle Obregón #210, Col. Centro, C.P.83900"', ['numero:210', 'numero:83900']],
+      ['"Calle Obregón No.1043"', ['numero:1043']],
+      ['"color": "#123456", "c2": "#abc", "ent": "&#225;", "v": 0.85, "x": "1,043"', ['numero:1,043']],
+    ];
+    for (const [linea, esperado] of casos) {
+      assert.deepEqual(resumen(detectarResiduos(linea, { archivo: 'plantilla-contrato.json' })), esperado, linea);
+    }
+  });
+});
+
+describe('revisión: {{...}} preexistentes en las fuentes', () => {
+  test('se conservan, se avisan y LEEME los lista y ajusta el grep', () => {
+    const contrato = CONTRATO_VP.replace(
+      '"area":',
+      '"plantillaTitulo": "{{titulo}} | Villa Pesqueira",\n  "saludo": "Hola {{usuario}}, bienvenido al portal",\n  "area":',
+    );
+    const { raiz } = fixtureVillaPesqueira(BASE, 'rev-preexistentes', { contrato });
+    const r = ejecutar(['--slug', 'villapesqueira', '--nombre', 'Villa Pesqueira'], raiz);
+    assert.equal(r.codigo, 0, r.stderr);
+    assert.match(r.stderr, /ya contiene 2 "\{\{" propio\(s\) que se conservan \(\{\{titulo\}\}, \{\{usuario\}\}\)/);
+    const salida = path.join(raiz, 'scripts/herramienta-alta/plantillas');
+    const c = JSON.parse(fs.readFileSync(path.join(salida, 'plantilla-contrato.json'), 'utf8'));
+    assert.equal(c.plantillaTitulo, '{{titulo}} | {{NOMBRE}}');
+    const leeme = fs.readFileSync(path.join(salida, 'LEEME.md'), 'utf8');
+    assert.match(leeme, /## Marcadores preexistentes en las fuentes \(NO reemplazar\)/);
+    assert.match(leeme, /`plantilla-contrato\.json:15` \| `\{\{titulo\}\}`/);
+    assert.match(leeme, /grep -nE "\\\{\\\{\(NOMBRE\|.*UUID_\[0-9\]\+\)\\\}\\\}"/);
+    assert.doesNotMatch(leeme, /grep -n "\{\{"/);
+  });
+
+  test('si coinciden con un marcador propio ({{NOMBRE}}) la fuente se omite con aviso', () => {
+    assert.deepEqual(buscarMarcadoresPreexistentes('a {{ NOMBRE }} b\n{{x'), [
+      { linea: 1, texto: '{{ NOMBRE }}', nombre: 'NOMBRE' },
+      { linea: 2, texto: '{{', nombre: null },
+    ]);
+    const contrato = CONTRATO_VP.replace('"area":', '"plantillaTitulo": "{{titulo}} | {{NOMBRE}}",\n  "area":');
+    const { raiz } = fixtureVillaPesqueira(BASE, 'rev-choque', { contrato });
+    const r = ejecutar(['--slug', 'villapesqueira', '--nombre', 'Villa Pesqueira'], raiz);
+    assert.equal(r.codigo, 0, r.stderr);
+    assert.match(r.stderr, /omite\s+scripts\/herramienta-alta\/contratos\/villapesqueira\.json .*\{\{NOMBRE\}\}, que coincide con un marcador/);
+    const salida = path.join(raiz, 'scripts/herramienta-alta/plantillas');
+    assert.ok(!fs.existsSync(path.join(salida, 'plantilla-contrato.json')));
+    // El UUID del contrato omitido no participa: el operador sigue siendo consistente con db-alta.
+    const o = JSON.parse(fs.readFileSync(path.join(salida, 'plantilla-operador.json'), 'utf8'));
+    assert.equal(o.municipioId, '{{UUID_1}}');
+  });
+});
+
+describe('revisión: salidas seguras (enlaces, obsoletas, todo o nada)', () => {
+  const args = ['--slug', 'villapesqueira', '--nombre', 'Villa Pesqueira'];
+
+  test('--forzar nunca escribe a través de un enlace (simbólico o duro) hacia una entrada', () => {
+    for (const tipo of ['simbolico', 'duro']) {
+      const { raiz, rutas } = fixtureVillaPesqueira(BASE, `rev-enlace-${tipo}`);
+      const salida = path.join(raiz, 'scripts/herramienta-alta/plantillas');
+      fs.mkdirSync(salida, { recursive: true });
+      const destino = path.join(salida, 'plantilla-contrato.json');
+      if (tipo === 'simbolico') fs.symlinkSync('../contratos/villapesqueira.json', destino);
+      else fs.linkSync(rutas.contrato, destino);
+      const antes = hashArchivo(rutas.contrato);
+      const r = ejecutar([...args, '--forzar'], raiz);
+      assert.equal(r.codigo, 1, tipo);
+      assert.match(r.stderr, tipo === 'simbolico' ? /es un enlace simbólico/ : /es el mismo archivo que la entrada/);
+      assert.equal(hashArchivo(rutas.contrato), antes, `la entrada no cambia (${tipo})`);
+      assert.deepEqual(fs.readdirSync(salida), ['plantilla-contrato.json'], `no se escribe nada más (${tipo})`);
+    }
+  });
+
+  test('sin --forzar, un enlace roto como salida: error y NINGÚN archivo escrito', () => {
+    const { raiz } = fixtureVillaPesqueira(BASE, 'rev-enlace-roto');
+    const salida = path.join(raiz, 'scripts/herramienta-alta/plantillas');
+    fs.mkdirSync(salida, { recursive: true });
+    fs.symlinkSync('/no/existe/destino', path.join(salida, 'plantilla-operador.json'));
+    const r = ejecutar(args, raiz);
+    assert.equal(r.codigo, 1);
+    assert.deepEqual(fs.readdirSync(salida), ['plantilla-operador.json']);
+  });
+
+  test('una salida existente cuenta aunque su fuente falte; con --forzar las obsoletas se eliminan', () => {
+    const { raiz, rutas } = fixtureVillaPesqueira(BASE, 'rev-obsoletas');
+    const salida = path.join(raiz, 'scripts/herramienta-alta/plantillas');
+    assert.equal(ejecutar(args, raiz).codigo, 0);
+    fs.rmSync(rutas.operador);
+    fs.rmSync(rutas.material);
+    const antes = fs.readdirSync(salida).map((n) => hashArchivo(path.join(salida, n)));
+
+    const r = ejecutar(args, raiz);
+    assert.equal(r.codigo, 1, 'sin --forzar no se mezcla con plantillas viejas');
+    assert.match(r.stderr, /plantilla-operador\.json/);
+    assert.deepEqual(fs.readdirSync(salida).map((n) => hashArchivo(path.join(salida, n))), antes);
+
+    const r2 = ejecutar([...args, '--forzar'], raiz);
+    assert.equal(r2.codigo, 0, r2.stderr);
+    assert.match(r2.stderr, /Eliminadas .*plantilla-operador\.json, plantilla-README-material\.md/);
+    assert.deepEqual(fs.readdirSync(salida).sort(), ['LEEME.md', 'plantilla-contrato.json', 'plantilla-db-alta.js']);
+    const leeme = fs.readFileSync(path.join(salida, 'LEEME.md'), 'utf8');
+    assert.match(leeme, /eliminadas con `--forzar`[\s\S]*- `plantilla-operador\.json`/);
+  });
+
+  test('--salida vacía es un error y no escribe en la raíz', () => {
+    const { raiz } = fixtureVillaPesqueira(BASE, 'rev-salida-vacia');
+    const antes = fs.readdirSync(raiz).sort();
+    const r = ejecutar([...args, '--salida', ''], raiz);
+    assert.equal(r.codigo, 1);
+    assert.match(r.stderr, /valor vacío para --salida/);
+    assert.deepEqual(fs.readdirSync(raiz).sort(), antes);
+    assert.throws(() => parsearArgumentos(['--raiz', '  ']), /valor vacío para --raiz/);
+  });
+
+  test('desde otro directorio (solo existe el material): error, sin crear carpetas', () => {
+    const base = path.join(BASE, 'rev-otro-dir');
+    const { rutas } = fixtureVillaPesqueira(BASE, 'rev-otro-dir');
+    const otro = path.join(base, 'otro-repo');
+    fs.mkdirSync(otro);
+    assert.ok(fs.existsSync(rutas.material));
+    const r = ejecutar(args, otro);
+    assert.equal(r.codigo, 1);
+    assert.match(r.stderr, /no parece la raíz de cmsmunicipal/);
+    assert.deepEqual(fs.readdirSync(otro), []);
+  });
+});
+
+describe('revisión: Cloudinary, slug = nombre, bordes de palabra', () => {
+  test('segmentos de versión sin "//", con "\\/" o con dominio propio', () => {
+    const casos = [
+      '{"escudo": "res.cloudinary.com/northa/image/upload/v1712345678/escudo.png"}',
+      '{"escudo": "https:\\/\\/res.cloudinary.com\\/northa\\/image\\/upload\\/v1712345678\\/escudo.png"}',
+      '{"escudo": "image/upload/v1712345678/municipios/{{SLUG}}/escudo.png"}',
+      '{"escudo": "https://media.northa.digital/image/upload/v1712345678/escudo.png"}',
+    ];
+    for (const linea of casos) {
+      const r = detectarResiduos(linea, { archivo: 'plantilla-contrato.json' });
+      assert.equal(r.length, 1, linea);
+      assert.equal(r[0].tipo, 'cloudinary');
+      assert.match(r[0].motivo, /\/v1712345678\//);
+    }
+  });
+
+  test('slug igual a NOMBRE_MINUS (Naco): correo admin no es residuo y la consola avisa', () => {
+    assert.deepEqual(marcadoresDelSlug('Naco', 'naco'), ['SLUG', 'NOMBRE_MINUS']);
+    assert.deepEqual(marcadoresDelSlug('Villa Pesqueira', 'villapesqueira'), ['SLUG']);
+    const linea = '"email": "admin-{{NOMBRE_MINUS}}@northa.digital", "otro": "info@northa.digital"';
+    const r = detectarResiduos(linea, { nombre: 'Naco', slug: 'naco', marcadoresSlug: marcadoresDelSlug('Naco', 'naco') });
+    assert.deepEqual(resumen(r), ['correo:info@northa.digital']);
+
+    const { raiz } = crearFixture(BASE, 'rev-naco', 'naco', {
+      contrato: JSON.stringify({ nombre: 'Naco', url: 'https://naco.gob.mx' }, null, 2),
+      operador: JSON.stringify({ email: 'admin-naco@northa.digital' }, null, 2),
+    });
+    const rc = ejecutar(['--slug', 'naco', '--nombre', 'Naco'], raiz);
+    assert.equal(rc.codigo, 0, rc.stderr);
+    assert.match(rc.stderr, /Aviso: el slug "naco" es igual a \{\{NOMBRE_MINUS\}\}/);
+    assert.doesNotMatch(rc.stdout, /correo electrónico/);
+    const leeme = fs.readFileSync(path.join(raiz, 'scripts/herramienta-alta/plantillas/LEEME.md'), 'utf8');
+    assert.match(leeme, /\*\*Ojo:\*\* el slug coincidía con `\{\{NOMBRE_MINUS\}\}`/);
+  });
+
+  test('restos del nombre: sin falsos positivos dentro de otras palabras; derivadas con otro motivo', () => {
+    const casos = [
+      ['equipo portátil y volátil', { nombre: 'Átil', slug: 'atil' }, []],
+      ['estructures y Ures', { nombre: 'Ures', slug: 'ures' }, ['resto del nombre/slug ("ures")']],
+      ['Red de agua potable', { nombre: 'Agua Prieta', slug: 'aguaprieta' }, []],
+      ['Nacozari de García', { nombre: 'Naco', slug: 'naco' }, ['palabra que empieza por "naco" (¿derivada del nombre?)']],
+      ['logoPesqueira y municipiovillapesqueira', OPC_VP, ['resto del nombre/slug ("pesqueira")', '"villapesqueira" dentro de otra palabra']],
+    ];
+    for (const [linea, opc, esperado] of casos) {
+      assert.deepEqual(detectarResiduos(linea, { ...opc, archivo: 'x.md' }).map((x) => x.motivo), esperado, linea);
+    }
+  });
+});
+
+describe('revisión: rendimiento en líneas largas', () => {
+  test('GeoJSON minificado (32 000 pares) y data URI base64url (80 KB) en tiempo lineal', () => {
+    const pares = Array.from({ length: 32000 }, (_, i) => `[-109.${1000 + i},29.${1000 + i}]`);
+    let t0 = Date.now();
+    const r = detectarResiduos(`{"c":[${pares.join(',')}]}`, { ...OPC_VP, archivo: 'plantilla-contrato.json' });
+    const msGeo = Date.now() - t0;
+    assert.equal(r.length, 64000);
+    assert.ok(msGeo < 5000, `GeoJSON tardó ${msGeo} ms (antes ~12 s)`);
+
+    const b64 = crypto.randomBytes(60000).toString('base64url');
+    t0 = Date.now();
+    detectarResiduos(`{"img":"data:image/png;base64,${b64}"}`, { ...OPC_VP, archivo: 'plantilla-contrato.json' });
+    const msB64 = Date.now() - t0;
+    assert.ok(msB64 < 2000, `base64url tardó ${msB64} ms (antes ~7 s)`);
+  });
+});
+
+describe('revisión: errores de E/S, TMPDIR y versión de Node', () => {
+  test('TMPDIR inválido: la verificación JS avisa y el CLI sigue (código 0)', () => {
+    const { raiz } = fixtureVillaPesqueira(BASE, 'rev-tmpdir');
+    const r = ejecutar(['--slug', 'villapesqueira', '--nombre', 'Villa Pesqueira'], raiz, { TMPDIR: '/no/existe/tmp' });
+    assert.equal(r.codigo, 0, r.stderr);
+    assert.match(r.stderr, /AVISO\s+plantilla-db-alta\.js\s+no se pudo verificar la sintaxis \(no se pudo crear la copia temporal/);
+    assert.doesNotMatch(r.stderr, /^\s+at /m);
+  });
+
+  test('fuente ilegible (bucle de enlaces): aviso en español, sin stack trace', () => {
+    const { raiz, rutas } = fixtureVillaPesqueira(BASE, 'rev-eloop', { operador: null });
+    fs.mkdirSync(path.dirname(rutas.operador), { recursive: true });
+    fs.symlinkSync(path.basename(rutas.operador), rutas.operador);
+    const r = ejecutar(['--slug', 'villapesqueira', '--nombre', 'Villa Pesqueira'], raiz);
+    assert.equal(r.codigo, 0, r.stderr);
+    assert.match(r.stderr, /omite\s+scripts\/lotes-db\/operador-villapesqueira\.json\s+\(aviso: no se puede leer: ELOOP/);
+    assert.doesNotMatch(r.stderr, /^\s+at /m);
+  });
+
+  test('TMPDIR que es un enlace (macOS): el aviso de node --check conserva el número de línea', () => {
+    const real = fs.mkdtempSync(path.join(BASE, 'tmp-real-'));
+    const enlace = `${real}-enlace`;
+    fs.symlinkSync(real, enlace);
+    const previo = process.env.TMPDIR;
+    process.env.TMPDIR = enlace;
+    try {
+      const r = verificarSintaxisJs('const a = 1;\nconst b = ;\n');
+      assert.equal(r.ok, false);
+      assert.match(r.error, /^línea 2: SyntaxError/);
+    } finally {
+      if (previo === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previo;
+    }
+  });
+
+  test('requisitoNode: exige Node >= 18.3 con util.parseArgs', () => {
+    const conParseArgs = { parseArgs() {} };
+    assert.match(requisitoNode({}, '18.0.0'), /se requiere Node >= 18\.3\.0 \(tienes 18\.0\.0\)/);
+    assert.match(requisitoNode(conParseArgs, '18.2.0'), /se requiere Node/);
+    assert.match(requisitoNode(conParseArgs, '16.20.0'), /se requiere Node/);
+    assert.equal(requisitoNode(conParseArgs, '18.3.0'), null);
+    assert.equal(requisitoNode(conParseArgs, '22.1.0'), null);
+    assert.equal(requisitoNode(), null, 'la versión que ejecuta las pruebas cumple');
   });
 });
