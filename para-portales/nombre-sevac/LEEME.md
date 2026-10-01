@@ -16,7 +16,7 @@ Pedido del operador, 1 de octubre de 2026, con sus decisiones:
 | `app/(con-footer)/transparencia/sevac/page.js` | Pestaña, migas de pan y encabezado. El subtítulo pasa a ser "Obligaciones normativas". Se quita la sección de explicación y marco legal. La lista se titula "Documentos" y su texto ya no menciona la armonización contable. |
 | `app/(con-footer)/transparencia/page.js` | Tarjeta del hub con el nombre y la descripción nuevos. |
 | `components/layout/navItems.js`, `Footer.jsx`, `components/home/TransparenciaCTA.jsx` | Etiqueta "SEvAC/Cumplimiento". |
-| Componente del menú (se localiza por sus clases) | Separación entre opciones `gap-5` → `gap-3` (20 → 12 px) y letra `text-sm` → `text-[13px] leading-5`. Ver abajo. |
+| Componente del menú (se localiza por sus clases) | Separación entre opciones `gap-5` → `gap-3` (20 → 12 px) y letra `text-sm` → `text-[13px] leading-5` en sus 3 variantes: enlace normal, enlace externo y botón con submenú. Ver abajo. |
 | cms-admin | Menú lateral, acceso rápido, tablero, títulos y encabezados de las páginas de SEvAC, y catálogo de encabezados. |
 
 ### Por qué se compacta el menú

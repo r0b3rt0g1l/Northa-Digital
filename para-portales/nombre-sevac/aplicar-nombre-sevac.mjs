@@ -164,10 +164,12 @@ export const PORTAL = [
     cambios: [
       { desc: "separación del menú (gap-5 -> gap-3)", re: lit("hidden items-stretch gap-5 lg:flex"), por: "hidden items-stretch gap-3 lg:flex", veces: 1, hecho: lit("hidden items-stretch gap-3 lg:flex") },
       {
-        desc: "letra del menú (text-sm -> 13 px)",
+        // 3 veces en el molde: enlace normal, enlace externo (Transparencia) y botón con submenú
+        // (Gobierno). Las tres cambian para que todo el menú quede del mismo tamaño.
+        desc: "letra del menú (text-sm -> 13 px, en sus 3 variantes)",
         re: lit("whitespace-nowrap px-1 py-2 text-sm font-medium uppercase"),
         por: "whitespace-nowrap px-1 py-2 text-[13px] leading-5 font-medium uppercase",
-        veces: 1,
+        veces: 3,
         hecho: lit("whitespace-nowrap px-1 py-2 text-[13px] leading-5 font-medium uppercase"),
       },
     ],

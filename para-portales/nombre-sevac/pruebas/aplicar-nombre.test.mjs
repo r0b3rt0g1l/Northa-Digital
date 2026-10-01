@@ -64,7 +64,8 @@ test("portal: nombre nuevo en menú, pie, home, hub y apartado; sin armonizació
     assert.match(hub, /href: "\/transparencia\/sevac"/, "la dirección no cambia");
     const nav = leer(d, "components/layout/Navbar.jsx");
     assert.match(nav, /hidden items-stretch gap-3 lg:flex/);
-    assert.match(nav, /px-1 py-2 text-\[13px\] leading-5 font-medium uppercase/);
+    assert.equal((nav.match(/px-1 py-2 text-\[13px\] leading-5 font-medium uppercase/g) || []).length, 3, "las 3 variantes del menú");
+    assert.doesNotMatch(nav, /text-sm/);
     // Idempotente
     const otra = correr(d);
     assert.equal(otra.status, 0);
