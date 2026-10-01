@@ -62,10 +62,10 @@ test("portal: nombre nuevo en menú, pie, home, hub y apartado; sin armonizació
     assert.match(hub, /label: "SEvAC\/Cumplimiento",/);
     assert.ok(hub.includes(`"${DESCRIPCION}"`));
     assert.match(hub, /href: "\/transparencia\/sevac"/, "la dirección no cambia");
-    const nav = leer(d, "components/layout/Navbar.jsx");
-    assert.match(nav, /hidden items-stretch gap-3 lg:flex/);
-    assert.equal((nav.match(/px-1 py-2 text-\[13px\] leading-5 font-medium uppercase/g) || []).length, 3, "las 3 variantes del menú");
-    assert.doesNotMatch(nav, /text-sm/);
+    assert.match(leer(d, "components/layout/MainNav.jsx"), /hidden items-stretch gap-3 lg:flex/);
+    const opciones = leer(d, "components/layout/NavLink.jsx") + leer(d, "components/layout/NavDropdown.jsx");
+    assert.equal((opciones.match(/px-1 py-2 text-\[13px\] leading-5 font-medium uppercase/g) || []).length, 3, "las 3 variantes del menú");
+    assert.doesNotMatch(opciones, /text-sm/);
     // Idempotente
     const otra = correr(d);
     assert.equal(otra.status, 0);
@@ -114,11 +114,32 @@ test("si un texto no está como en el molde, no toca nada del repo", () => {
   }
 });
 
-test("menú: exige exactamente un archivo con las clases del menú", () => {
+test("menú: un solo contenedor y exactamente 3 variantes de letra en components/", () => {
   const d = repo("portal");
   try {
-    fs.copyFileSync(path.join(d, "components/layout/Navbar.jsx"), path.join(d, "components/layout/NavbarCopia.jsx"));
+    fs.copyFileSync(path.join(d, "components/layout/MainNav.jsx"), path.join(d, "components/layout/MainNavCopia.jsx"));
     assert.throws(() => planificar(d), /esperaba 1 archivo en components\/ con las clases del menú/);
+    fs.rmSync(path.join(d, "components/layout/MainNavCopia.jsx"));
+    fs.copyFileSync(path.join(d, "components/layout/NavDropdown.jsx"), path.join(d, "components/layout/NavDropdown2.jsx"));
+    assert.throws(() => planificar(d), /esperaba 3 vez\/veces "letra del menú[^"]*" en components\/ y encontré 4 \(components\/layout\/NavDropdown\.jsx, components\/layout\/NavDropdown2\.jsx, components\/layout\/NavLink\.jsx\)/);
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("menú: también funciona si el contenedor y las opciones están en el mismo archivo", () => {
+  const d = repo("portal");
+  try {
+    const capa = (f) => fs.readFileSync(path.join(d, "components/layout", f), "utf8");
+    const junto = capa("MainNav.jsx") + "\n" + capa("NavLink.jsx").replace(/^"use client";\n/, "") + "\n" + capa("NavDropdown.jsx").replace(/^"use client";\n/, "");
+    fs.writeFileSync(path.join(d, "components/layout/MainNav.jsx"), junto);
+    fs.rmSync(path.join(d, "components/layout/NavLink.jsx"));
+    fs.rmSync(path.join(d, "components/layout/NavDropdown.jsx"));
+    const { cambios } = planificar(d);
+    const nav = cambios.find((c) => c.ruta === "components/layout/MainNav.jsx").despues;
+    assert.match(nav, /hidden items-stretch gap-3 lg:flex/);
+    assert.equal((nav.match(/text-\[13px\] leading-5/g) || []).length, 3);
+    assert.equal(cambios.filter((c) => c.ruta === "components/layout/MainNav.jsx").length, 1, "un solo cambio por archivo");
   } finally {
     fs.rmSync(d, { recursive: true, force: true });
   }

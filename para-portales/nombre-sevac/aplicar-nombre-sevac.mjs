@@ -159,20 +159,24 @@ export const PORTAL = [
     cambios: [{ desc: 'acceso "SEvAC" del home', re: /(icon:\s*BarChart3,\s*label:\s*)"SEvAC"/g, por: `$1"${NOMBRE}"`, veces: 1, hecho: lit(`label: "${NOMBRE}"`) }],
   },
   {
-    // El componente del menú no menciona SEvAC: se localiza por sus clases.
+    // El contenedor del menú no menciona SEvAC: se localiza por sus clases
+    // (en el molde: components/layout/MainNav.jsx).
     buscar: { carpeta: "components", texto: "hidden items-stretch gap-5 lg:flex", hecho: "hidden items-stretch gap-3 lg:flex" },
     cambios: [
       { desc: "separación del menú (gap-5 -> gap-3)", re: lit("hidden items-stretch gap-5 lg:flex"), por: "hidden items-stretch gap-3 lg:flex", veces: 1, hecho: lit("hidden items-stretch gap-3 lg:flex") },
-      {
-        // 3 veces en el molde: enlace normal, enlace externo (Transparencia) y botón con submenú
-        // (Gobierno). Las tres cambian para que todo el menú quede del mismo tamaño.
-        desc: "letra del menú (text-sm -> 13 px, en sus 3 variantes)",
-        re: lit("whitespace-nowrap px-1 py-2 text-sm font-medium uppercase"),
-        por: "whitespace-nowrap px-1 py-2 text-[13px] leading-5 font-medium uppercase",
-        veces: 3,
-        hecho: lit("whitespace-nowrap px-1 py-2 text-[13px] leading-5 font-medium uppercase"),
-      },
     ],
+  },
+  {
+    // La letra de las opciones vive en otros componentes del menú: 3 variantes en el molde
+    // (enlace normal, enlace externo de Transparencia y botón con submenú de Gobierno). Cambian
+    // las tres para que todo el menú quede del mismo tamaño; se exige que sean 3 en total.
+    buscarTodos: {
+      carpeta: "components",
+      texto: "whitespace-nowrap px-1 py-2 text-sm font-medium uppercase",
+      hecho: "whitespace-nowrap px-1 py-2 text-[13px] leading-5 font-medium uppercase",
+      total: 3,
+      desc: "letra del menú (text-sm -> 13 px, en sus 3 variantes)",
+    },
   },
 ];
 
@@ -243,7 +247,7 @@ export function parchear(texto, cambios, nombreArchivo) {
   return s;
 }
 
-function buscarArchivo(raiz, { carpeta, texto, hecho }) {
+function archivosCon(raiz, carpeta, textos) {
   const encontrados = [];
   const recorrer = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -251,12 +255,38 @@ function buscarArchivo(raiz, { carpeta, texto, hecho }) {
       if (e.isDirectory()) recorrer(f);
       else if (/\.(jsx?|tsx?)$/.test(e.name)) {
         const t = fs.readFileSync(f, "utf8");
-        if (t.includes(texto) || t.includes(hecho)) encontrados.push(path.relative(raiz, f));
+        if (textos.some((x) => t.includes(x))) encontrados.push(path.relative(raiz, f));
       }
     }
   };
   const base = path.join(raiz, carpeta);
   if (fs.existsSync(base)) recorrer(base);
+  return encontrados.sort();
+}
+
+const contar = (t, x) => t.split(x).length - 1;
+
+/** Reemplaza `texto` por `hecho` en todos los archivos de `carpeta`; exige `total` apariciones. */
+function planificarTodos(raiz, { carpeta, texto, hecho, total, desc }) {
+  const archivos = archivosCon(raiz, carpeta, [texto, hecho]);
+  let pendientes = 0;
+  let hechos = 0;
+  const cambios = [];
+  for (const ruta of archivos) {
+    const antes = fs.readFileSync(path.join(raiz, ruta), "utf8");
+    pendientes += contar(antes, texto);
+    hechos += contar(antes, hecho);
+    if (antes.includes(texto)) cambios.push({ ruta, antes, despues: antes.split(texto).join(hecho) });
+  }
+  if (pendientes === 0 && hechos === total) return []; // ya aplicado
+  if (pendientes + hechos !== total) {
+    throw new Error(`esperaba ${total} vez/veces "${desc}" en ${carpeta}/ y encontré ${pendientes + hechos}${archivos.length ? ` (${archivos.join(", ")})` : ""}. No toqué el repo.`);
+  }
+  return cambios;
+}
+
+function buscarArchivo(raiz, { carpeta, texto, hecho }) {
+  const encontrados = archivosCon(raiz, carpeta, [texto, hecho]);
   if (encontrados.length !== 1) {
     throw new Error(`esperaba 1 archivo en ${carpeta}/ con las clases del menú ("${texto}") y encontré ${encontrados.length}${encontrados.length ? `: ${encontrados.join(", ")}` : ""}`);
   }
@@ -280,6 +310,14 @@ export function planificar(raiz) {
     else if (normalizar(antes) !== normalizar(SEVAC_JS_NUEVO)) throw new Error("lib/sevac.js no es como el del molde; no toqué el repo");
   }
   for (const p of tipo === "portal" ? PORTAL : ADMIN) {
+    if (p.buscarTodos) {
+      for (const c of planificarTodos(raiz, p.buscarTodos)) {
+        const previo = cambios.find((x) => x.ruta === c.ruta);
+        if (previo) previo.despues = previo.despues.split(p.buscarTodos.texto).join(p.buscarTodos.hecho);
+        else cambios.push(c);
+      }
+      continue;
+    }
     const ruta = p.archivo ?? buscarArchivo(raiz, p.buscar);
     const f = path.join(raiz, ruta);
     if (!fs.existsSync(f)) throw new Error(`no existe ${ruta}`);
