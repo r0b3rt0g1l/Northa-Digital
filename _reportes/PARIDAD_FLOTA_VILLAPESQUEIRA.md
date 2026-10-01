@@ -32,7 +32,7 @@
 | **villapesqueira** | **A** | **✅** | **6** | **12** | **✅** | **0** | **0** | **0** | **0** | **0** | **0** |
 | aconchi | B | ✅ | - | 6 | ✅ | 2 | 5 | 15 | 5 | 29 | 15 |
 
-"Generación A": la historia está en `municipalConfig.historia`. "Generación B": la historia está escrita dentro del componente. Banámichi, Rayón y Soyopa salen como "1" en generación porque su configuración no se pudo extraer automáticamente (otro formato).
+"Generación A": la historia está en `municipalConfig.historia`. "Generación B": la historia está escrita dentro del componente. Banámichi, Rayón y Soyopa salen con "?" en generación (y en contacto) porque su configuración no se pudo extraer automáticamente (otro formato).
 
 ## Qué falta para igualar a los demás
 
