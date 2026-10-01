@@ -1,0 +1,26 @@
+DESPLIEGUE NUEVO 21:40:13 UTC: dpl=dpl_8KS8zs2aaftRJGwryrDMa6ZdkMXS
+
+=== bacadehuachi (https://bacadehuachitransparencia.com.mx) · 18 documento(s)
+  OK    la página ya no publica direcciones de archivos.northadigital.com ni Cloudinary
+  OK    200  14.8 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t3/rehabilitacion-de-red-de-alumbrado-publico-en-el-municipio-de-bacadehuachi-sonora.pdf
+  OK    200   1.4 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t3/construccion-de-techo-firme-3-en-varias-viviendas-del-municipio-de-bacadehuachi-sonora.pdf
+  OK    200   1.2 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t3/construccion-de-bordo-de-proteccion-en-arroyo-bacadehuachi-en-el-municipio-de.pdf
+  OK    200   1.2 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t3/actas-de-cabildo.pdf
+  OK    200   1.2 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/mantenimiento-de-puente-peatonal.pdf
+  OK    200   1.3 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/construccion-de-techo-firme-2-en-varias-viviendas-del-municipio-de-bacadehuachi-sonora.pdf
+  OK    200   0.1 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/reglas-del-procedimiento-de-acceso-de-informacion-publica.pdf
+  OK    200   0.4 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-1-15-informacion-trimestral-sobre-la-aplicacion-de-los-recursos-federales-para-el-fondo.pdf
+  OK    200   0.9 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-3-4-estado-analitico-del-presupuesto-de-egresos-objeto-del-gasto.pdf
+  OK    200   0.2 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-3-1-estado-analitico-de-ingresos.pdf
+  OK    200   0.7 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-2-2-estado-de-situacion-financiera.pdf
+  OK    200   0.6 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-2-1-estado-de-actividades.pdf
+  OK    200   0.2 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-1-20-ejercicio-y-destino-de-gasto-federalizado-y-reintegros.pdf
+  OK    200   0.5 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-1-19-informacion-de-obligaciones-pagadas-garantizadas-con-fondos-federales.pdf
+  OK    200   0.3 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-1-17-informacion-de-aplicacion-de-recursos-fortamun.pdf
+  OK    200   0.4 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-1-12-montos-por-orden-de-gobierno-en-programas-por-recursos-federales.pdf
+  OK    200   1.4 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t2/d-1-11-montos-pagados-por-concepto-de-ayudas-y-subsidios.pdf
+  OK    200   0.2 MB  https://bacadehuachitransparencia.com.mx/transparencia/sevac/2026/t1/d-5-4-libro-de-inventarios-bienes-muebles-e-inmuebles.pdf
+
+Todo bien
+
+[exited with code 0]
