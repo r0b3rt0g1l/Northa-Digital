@@ -24,6 +24,13 @@ A 1024 px, en Bacadéhuachi la palabra "Bacadéhuachi" se encima con "INICIO". C
 
 La causa es que el nombre del municipio es una sola palabra larga y la marca no tiene ancho mínimo. En Carbó, a ese ancho, no se encima. Se puede corregir aparte, por ejemplo mostrando el menú de hamburguesa por debajo de 1280 px.
 
-## Resto de la flota
+## Flota completa: 15 de 15 portales (1 de octubre de 2026)
 
-Pendiente: Aconchi, Bacanora, Banámichi, Baviácora, Carbó, Cucurpe, Huachinera, Mazatán, Rayón, Sahuaripa, San Javier, Soyopa, Tepache y Villa Pesqueira.
+Corrida del operador: los 14 portales restantes, `aplicado`. Verificación en producción:
+
+| Comprobación | Resultado |
+|---|---|
+| Textos, 15 portales × 4 páginas (`/`, `/transparencia`, `/transparencia/sevac`, `/contacto`) | **15/15 OK**: pestaña "SEvAC/Cumplimiento", descripción nueva, Fuente "CONAC y Auditoría Superior…", el nombre nuevo en las 4 páginas y **0 apariciones de "armonización"** |
+| Encabezado, 15 portales × 1024, 1150, 1279, 1280, 1366 y 1920 px | Comparado en la misma página contra el menú anterior (20 px, 14 px, "SEvAC"): **en ningún caso se ve peor**. A 1024 px, el nombre del municipio ya invadía el espacio del menú antes del cambio (ver arriba) |
+| Enlaces de documentos | `verificar-enlaces-sevac.mjs --todos`: **Todo bien**, 173 documentos (Bacanora pasó a 2). Salida: `flota-15-enlaces-tras-renombre.txt` |
+| cms-admin | Aplicado (`985cf93`). Falta que el operador lo confirme a la vista |
