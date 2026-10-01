@@ -43,6 +43,19 @@ El alta se corrió y quedó bien. Lo que se verificó después, en vivo:
 
 ---
 
+## 0-quater. Actualización: línea de tiempo de 12 hitos, portada de Historia y backend publicado (1 de octubre de 2026, 18:13 UTC)
+
+| Comprobación | Resultado |
+|---|---|
+| Portal (`main` en `90daecc`, despliegue `dpl_9x9S5dmbxHjLJHvNLGRosz6WECb2`) | **12 hitos publicados**, de 1622 a 2024, e historia en 6 párrafos. `verificar-alta`: 21 OK, 0 FALLA. Barrido: sin restos. Navegador: sin errores, 12 hitos visibles en escritorio y en móvil |
+| Portada de Historia cargada en el panel (17:13:56 UTC) | **Visible desde las 18:01:52 UTC**, como fondo de la sección Historia. Apareció justo cuando Vercel publicó un despliegue nuevo, no por el paso del tiempo: el panel no avisó al portal |
+| `cmsmunicipal` (`main` en `4653533`, redespliega Render) | Se unió `feat/alta-villapesqueira`. API sana: 15 municipios, `aislamiento-publico` con **0 fugas** en 205 peticiones |
+| ¿Cada carga del panel se ve en la web? | **Pendiente de medir.** Hay una vigilancia esperando el próximo cambio en el panel. Los 5 archivos unidos están todos bajo `scripts/`, así que no está garantizado que el servidor use `flota.config.json` para avisar al portal |
+
+Capturas de la línea de tiempo: `villapesqueira-post-despliegue-facebook-historia/linea-tiempo-12-hitos-*.png`.
+
+---
+
 ## 0-ter. Actualización: Facebook, historia y línea de tiempo desplegados (1 de octubre de 2026, 17:04 UTC)
 
 Se aplicó con `para-portal-villapesqueira/aplicar-facebook-historia.mjs` en el repo del portal (commit `6bc2d65`, unido a `main`) y Vercel lo publicó (despliegue `dpl_GQfVjGZ3EgZtxMnMRXJKp5fzuRRu`, que reemplazó a `dpl_6aABi…`). Verificado en producción:
