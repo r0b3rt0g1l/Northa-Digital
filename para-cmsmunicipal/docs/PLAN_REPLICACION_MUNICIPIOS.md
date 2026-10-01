@@ -168,7 +168,7 @@ until node scripts/verificacion/verificar-alta.mjs <slug>; do [ $? -eq 2 ] || br
 
 ## P-2. El respaldo debe sobrevivir a listas vacías
 
-Los componentes del cliente `HeroCarousel` y `Estadisticas` devuelven `null` cuando reciben una lista vacía ✔︎ (se comprobó en el bundle de Villa Pesqueira). El servidor del portal tiene que elegir el respaldo **cuando la lista está vacía**, no solo cuando la petición falla:
+Los componentes del cliente `HeroCarousel` y `Estadisticas` devuelven `null` cuando reciben una lista vacía ✔︎ (se comprobó en el bundle de Villa Pesqueira). **Y se confirmó en el alta real (1 de octubre de 2026):** con `200 []` el hero desapareció del home, mientras que las estadísticas conservaron el respaldo. Por eso, en el alta de un municipio nuevo hay que **cargar el hero en el panel de inmediato** (hoja de contenido inicial, en `_reportes/`), o corregir la condición del hero en el molde. El servidor del portal tiene que elegir el respaldo **cuando la lista está vacía**, no solo cuando la petición falla:
 
 ```js
 // ✅ conserva el respaldo con [] (municipio recién dado de alta, o admin que borró todo)

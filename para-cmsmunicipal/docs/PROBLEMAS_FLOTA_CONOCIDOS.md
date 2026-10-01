@@ -61,7 +61,8 @@
 
 ### P-2. Hero y estadísticas desaparecen con listas vacías
 - ✔︎ En el cliente, `HeroCarousel` y `Estadisticas` hacen `if(!e||0===e.length)return null;` (bundle de Villa Pesqueira, chunk `35qky3qgyj8j8.js`).
-- 🔎 Si el servidor pasa `[]` en lugar del respaldo, el home se queda sin hero ni estadísticas. Pasa en dos casos: justo después del alta de cualquier municipio, y cuando un admin borra todos sus slides.
+- ✔︎ **Confirmado en vivo con Villa Pesqueira (1 de octubre de 2026):** tras el alta, la API pasó de 404 a `200 []` y el home regenerado **perdió el hero**: no hay `"slides"` en su payload y el carrusel quedó en `null`. Las estadísticas **sí** conservaron el respaldo (`default-*`). Es decir, el respaldo del hero solo se usa cuando la API falla, no cuando devuelve una lista vacía. Le pasará a cualquier municipio nuevo, y también a uno cuyo admin borre todos los slides.
+- Efecto práctico: hasta que se cargue el hero en el panel, el home no muestra hero.
 - **Solución:** usar `lista?.length ? lista : respaldo` en el servidor del molde. Detalle en PLAN_REPLICACION_MUNICIPIOS.md §P-2.
 
 ### P-4. Hero de respaldo con texto de otro municipio (el "caso Sahuaripa")

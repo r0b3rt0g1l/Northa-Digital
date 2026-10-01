@@ -20,9 +20,26 @@
 | 8 | API | ⏳ 404 `Municipio 'villapesqueira' no encontrado` | Es lo esperado antes del alta |
 | 9 | Archivos y commits en `cmsmunicipal` | ❓ no se pueden verificar desde aquí | [§1](#1-alcance-qué-sí-y-qué-no-pude-verificar). Hay que correr el Paso 0 en tu máquina |
 | 10 | Acceso del admin por Zero Trust | ⛔ **bloqueado** | [H1](#h1--bloqueo-el-correo-del-admin-no-puede-recibir-el-código-de-zero-trust): el dominio `northa.digital` no existe en DNS |
-| 11 | Hero y estadísticas después del alta | ⚠️ riesgo | [H2](#h2--alto-el-hero-y-las-estadísticas-pueden-desaparecer-del-home-después-del-alta) |
+| 11 | Hero y estadísticas después del alta | ❌ **confirmado: el hero desaparece** ([§0-bis](#0-bis-actualización-alta-ejecutada-1-de-octubre-de-2026-1531-utc)) | [H2](#h2--alto-el-hero-y-las-estadísticas-pueden-desaparecer-del-home-después-del-alta) |
 | 12 | Prueba "noticia visible en menos de 1 min" | ⚠️ depende de la revalidación bajo demanda | [H3](#h3--alto-la-prueba-de-menos-de-1-min-depende-de-la-revalidación-bajo-demanda) |
 | 13 | URL de la prueba de punta a punta | ⚠️ `/noticias` da 404 | La ruta real es `/acciones-de-gobierno` ([H4](#h4--medio-la-url-de-la-prueba-es-incorrecta-y-un-404-temprano-queda-en-caché)) |
+
+---
+
+## 0-bis. Actualización: alta ejecutada (1 de octubre de 2026, 15:31 UTC)
+
+El alta se corrió y quedó bien. Lo que se verificó después, en vivo:
+
+| Comprobación | Resultado |
+|---|---|
+| `verificar-alta.mjs villapesqueira …` | **20 OK · 3 AVISO · 0 FALLA** (código 0). Los avisos son esperados: sin dominio propio, y hero y estadísticas vacíos |
+| Fila creada | id `86fbe8fd-6e3f-4aa6-b378-f22ea1f785f6`, `nombre` "H. Ayuntamiento de Villa Pesqueira", `activo` true, `dominio` null, `creadoEn` 2026-10-01T15:31:39Z |
+| Escudo | 200 `image/png` (62 KB) |
+| `aislamiento-publico.mjs --incluir villapesqueira` | **15 de 15 municipios revisados, 0 fugas**, 283 peticiones. Villa Pesqueira: detalle propio 6/6 con 200 y cruzado 6/6 con 404 |
+| Las 8 subrutas de la API | Todas 200 `[]` |
+| **Home después de regenerarse** | ❌ **El hero desapareció** (riesgo H2 confirmado). Las estadísticas conservaron el respaldo |
+
+**Evidencia del hero (H2):** el home regenerado a las 15:31:53 UTC ya no tiene `"slides"` en su payload; donde estaba el carrusel hay un `null`. El texto "Bienvenidos a Villa Pesqueira" y "Mátape" ya no aparecen en el HTML. Las estadísticas siguen siendo las `default-*` (1,043, 1124.3 km², "Por designar"). Conclusión: el servidor del portal usa el respaldo cuando la API falla o da 404, pero con `200 []` pasa la lista vacía al hero y este no se dibuja. **Solución inmediata:** cargar el hero en el panel (ver [CONTENIDO_INICIAL_VILLAPESQUEIRA.md](CONTENIDO_INICIAL_VILLAPESQUEIRA.md)). **Solución de fondo:** corregir la condición en el servidor del portal (P-2 de PROBLEMAS_FLOTA_CONOCIDOS.md).
 
 ---
 
