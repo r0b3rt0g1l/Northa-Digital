@@ -15,4 +15,9 @@ Nota: el Chromium sin interfaz de las pruebas no dibuja PDFs, por eso el visor s
 
 ## Resto de la flota
 
-Pendiente: se aplica con un solo comando desde la Mac del operador y después se verifica con `verificar-enlaces-sevac.mjs --todos`.
+| Portal | Estado |
+|---|---|
+| Aconchi, Bacanora, Banámichi, Baviácora, Carbó, Cucurpe, Huachinera, Mazatán, Rayón, Sahuaripa, San Javier | Aplicado. `verificar-enlaces-sevac.mjs`: **OK en las 12 páginas** (incluida Bacadéhuachi), **137 documentos** sin fallas y ninguna dirección de northadigital/Cloudinary en las páginas. Salida: `flota-12-verificacion.txt` |
+| Documento más grande de la flota | Banámichi, `…/2025/t2/evaluacion-fismdf-2025.pdf`: **90,787,806 bytes completos** a través del portal, `200 application/pdf`. El streaming aguanta |
+| Soyopa | Pendiente. La primera corrida lo saltó por un archivo suelto (`cinemagoer.db`); el script ya no se bloquea por eso |
+| Tepache, Villa Pesqueira | Pendientes. Se quedaron sin procesar por un error del script, ya corregido: con `--build` se detenía ante cualquier falla, no solo ante un build roto |
