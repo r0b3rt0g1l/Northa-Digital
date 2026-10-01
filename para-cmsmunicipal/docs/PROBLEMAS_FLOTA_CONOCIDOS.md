@@ -105,9 +105,10 @@ Se corrigen desde el panel de cada municipio; no hace falta tocar código.
   - Borrar o proteger con Vercel Authentication los proyectos viejos.
   - Como mínimo, agregar `x-robots-tag: noindex`.
 
-### P-10. Formulario de contacto desactivado en Villa Pesqueira
+### P-10. Formulario de contacto desactivado en toda la flota
 - ✔︎ `/contacto` recibe `accessKey: undefined` y muestra "El formulario de contacto estará disponible en breve". Mientras tanto, el pie de página invita a "Escríbenos por el formulario".
-- **Solución:** configurar en Vercel la variable de entorno con la clave de Web3Forms y agregarla al checklist de PRE-ALTA. No se revisó en los otros 14 portales.
+- ✔︎ **No es solo Villa Pesqueira:** `/contacto` muestra "estará disponible en breve" también en Carbó, Mazatán, Cucurpe, San Javier y Sahuaripa (revisado el 1 de octubre de 2026).
+- **Solución:** configurar en Vercel, en cada proyecto, la variable de entorno con la clave de Web3Forms del municipio, y agregarla al checklist de PRE-ALTA.
 
 ---
 
