@@ -48,6 +48,8 @@
   1. Copiar `REVALIDATE_SECRET` (el mismo valor que usan los demás portales y Render) al proyecto de Vercel y redesplegar.
   2. Poner en `dominio` el host donde vive el portal: el provisional `<slug>.vercel.app` mientras no haya dominio propio, y el definitivo cuando exista.
 - **Prevención (checklist de PRE-ALTA):** ningún portal se da de alta sin `REVALIDATE_SECRET` en Vercel y sin `dominio` en la base de datos.
+- ✔︎ **Estado en Villa Pesqueira (1 de octubre de 2026, 20:41 UTC):** las dos piezas quedaron corregidas (`dominio = villapesqueira.vercel.app` y la clave activa en producción). La portada reemplazada apareció al entrar el despliegue nuevo. Falta medir el aviso en sí con el próximo cambio del panel.
+- 🔎 **Sobre el redeploy:** las dos veces que la portada de Villa Pesqueira se puso al día coincidieron con un despliegue nuevo. En la práctica el redeploy sí refrescó el home, aunque el comentario del código diga que no limpia la caché de datos. No hay que usarlo como mecanismo: el camino correcto es el aviso.
 
 ### P-5. `alta-municipio.js` falla en Cloudinary si no se corre desde la raíz
 - 📝 Reportado por ti; no se pudo ver el código.

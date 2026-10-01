@@ -43,6 +43,22 @@ El alta se corrió y quedó bien. Lo que se verificó después, en vivo:
 
 ---
 
+## 0-quinquies. Actualización: sincronización panel → web reparada (1 de octubre de 2026, 20:45 UTC)
+
+Síntoma: la portada reemplazada en el panel no aparecía; el home tenía `portadaUrl: null` aunque la API ya tenía la imagen nueva. Causa: el aviso del backend al portal no podía llegar (ver P-3 en `PROBLEMAS_FLOTA_CONOCIDOS.md`).
+
+| Pieza | Antes | Ahora |
+|---|---|---|
+| `Municipio.dominio` | `null` (el backend no sabía a quién avisar) | `villapesqueira.vercel.app`, con `fijar-dominio.mjs --aplicar` (COMMIT) |
+| `REVALIDATE_SECRET` en Vercel | `POST /api/revalidate` → `REVALIDATE_SECRET no configurado` | → `secreto inválido` (igual que Carbó, Mazatán y Baviácora) desde las **20:41:00 UTC**, despliegue `dpl_B2BTrkS4koj2PiK3t7QCGYc8Ls5Q` |
+| Portada de Historia | home con `null` | **Visible desde las 20:41:20 UTC** (`…/portada-historia/d71vd449ztdo8so5fhai.png`), cargada en el navegador a 1365 px. Captura: `villapesqueira-sincronizacion-panel/portada-reemplazada-2041utc.png` |
+
+Observación: las dos veces que la portada se puso al día (18:01 y 20:41 UTC) coincidieron con la entrada de un despliegue nuevo en producción. Esta vez el guardado (20:37:47) fue anterior a la clave, así que no la actualizó el aviso: la actualizó el despliegue.
+
+**Pendiente:** medir el aviso en sí. Hay una vigilancia esperando el próximo cambio del panel (portada o slide del hero) para medir los segundos hasta que se ve en la web.
+
+---
+
 ## 0-quater. Actualización: línea de tiempo de 12 hitos, portada de Historia y backend publicado (1 de octubre de 2026, 18:13 UTC)
 
 | Comprobación | Resultado |
