@@ -148,7 +148,7 @@ Otras comprobaciones:
   - Que el respaldo se conserve depende de la condición en el código de servidor, y ese código no es visible desde fuera: `lista?.length ? lista : respaldo` lo conserva; `lista ?? respaldo`, o un respaldo que solo se usa si la petición falla, lo pierde.
   - Ninguno de los 14 municipios tiene hero o estadísticas vacíos, así que no hay con qué comparar.
 - **Qué hacer:** antes del Paso 1, revisa la condición en el repositorio del portal. El comando está en el Paso 0-bis. Si no la conserva, hay dos caminos:
-  - **(a)** Justo después del alta, cargar el hero y las estadísticas en el panel. Hay unos 5 minutos antes de que el home se regenere (ISR). Esto requiere resolver antes H1.
+  - **(a)** Justo después del alta, cargar el hero y las estadísticas en el panel. Hay unos 5 minutos antes de que el home se regenere (ISR). Esto requiere resolver antes H1. El contenido exacto, listo para copiar, está en [CONTENIDO_INICIAL_VILLAPESQUEIRA.md](CONTENIDO_INICIAL_VILLAPESQUEIRA.md).
   - **(b)** Corregir la condición en el portal. Es un cambio en el repositorio de Villa Pesqueira y necesita tu OK.
 
 ### H3 · ALTO: la prueba de menos de 1 min depende de la revalidación bajo demanda
