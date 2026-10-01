@@ -7,6 +7,7 @@ Reportes y herramientas de operación de la flota de portales municipales (`cmsm
 | `_reportes/` | Reportes de estado por municipio, con línea base (texto y capturas) para comparar antes y después de cada cambio |
 | `para-cmsmunicipal/docs/` | Documentos que se **copian** a `cmsmunicipal/docs/`: plan de replicación y problemas conocidos de la flota |
 | `para-cmsmunicipal/scripts/verificacion/` | Scripts de solo lectura (Node 18 o superior, sin dependencias) que se **copian** a `cmsmunicipal/scripts/verificacion/`: verificación post-alta, aislamiento público, medición de publicación y barrido de restos de otros municipios |
+| `para-portal-villapesqueira/` | `aplicar-facebook-historia.mjs`: aplica en el repo del **portal** de Villa Pesqueira el botón de Facebook, la historia y la línea de tiempo (con `--dry-run`, todo o nada). Pruebas: `node --test para-portal-villapesqueira/*.test.mjs` |
 | `para-cmsmunicipal/scripts/herramienta-alta/` | `derivar-plantillas.mjs`, que se **copia** a `cmsmunicipal/scripts/herramienta-alta/` |
 
 Para copiarlos, desde la raíz de este repo:

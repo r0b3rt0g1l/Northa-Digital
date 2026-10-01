@@ -44,6 +44,17 @@ Lo que **ya está bien**: nombre y datos de identidad, coordenadas, altitud medi
 
 ## 3. Cambios de código (tipo A) listos para pegar
 
+> **Atajo: el script `para-portal-villapesqueira/aplicar-facebook-historia.mjs` aplica 3.1 y 3.2 en `lib/municipalConfig.js` y los hitos en `lib/hitos.js`** del repo del portal, con una sola orden. Es de todo o nada: si no encuentra un bloque, o el bloque ya tiene contenido distinto, no escribe nada y lo dice. Tiene `--dry-run` para ver el cambio antes. Los nombres de archivo salen de los portales hermanos que sí pude leer (San Javier, Arivechi y Bacanora v2); **el repo de Villa Pesqueira no lo pude ver**, así que si algún archivo está en otra ruta, el script lo avisa. Las pruebas usan archivos de ejemplo con el mismo estilo del molde; el script **no se ha corrido contra el repo real**.
+>
+> ```bash
+> cd ~/Developer/VillaPesqueira            # raíz del repo del portal
+> git switch -c feat/facebook-historia
+> node /ruta/a/aplicar-facebook-historia.mjs --dry-run   # revisa el cambio
+> node /ruta/a/aplicar-facebook-historia.mjs             # aplica
+> git diff && npm run lint && npm run build
+> ```
+
+
 ### 3.1 Botón de Facebook
 
 En `lib/municipalConfig.js` del repo del portal, dentro de `redes`:
