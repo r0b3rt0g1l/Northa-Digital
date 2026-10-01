@@ -43,6 +43,24 @@ El alta se corrió y quedó bien. Lo que se verificó después, en vivo:
 
 ---
 
+## 0-ter. Actualización: Facebook, historia y línea de tiempo desplegados (1 de octubre de 2026, 17:04 UTC)
+
+Se aplicó con `para-portal-villapesqueira/aplicar-facebook-historia.mjs` en el repo del portal (commit `6bc2d65`, unido a `main`) y Vercel lo publicó (despliegue `dpl_GQfVjGZ3EgZtxMnMRXJKp5fzuRRu`, que reemplazó a `dpl_6aABi…`). Verificado en producción:
+
+| Comprobación | Resultado |
+|---|---|
+| `verificar-alta.mjs … --esperar-texto` (Facebook oficial, "lugar de metales", "Se erige la Villa Pesqueira") | **21 OK · 3 AVISO · 0 FALLA** |
+| `barrido-portal.mjs` (62 términos) | **Sin restos de otros municipios** (código 0) |
+| Navegador, escritorio y móvil | Enlace a `https://www.facebook.com/ayuntamientodevillapesqueira` con `target="_blank"` y `rel="noopener noreferrer"`, **en la barra superior y en el pie**. Sección Historia con 3 párrafos. Línea de tiempo con 2 hitos (1629 y 1867-02-11). **Sin errores de consola ni scroll horizontal** |
+
+Capturas en [`villapesqueira-post-despliegue-facebook-historia/`](villapesqueira-post-despliegue-facebook-historia/).
+
+**Qué falló antes de publicar:** el commit estaba solo en la rama `feat/facebook-historia`; producción solo publica lo que llega a `main`. Se detectó porque el identificador de despliegue y la fecha de compilación del sitemap no cambiaban.
+
+**Sigue vacío (lo cargan quienes administran el panel):** hero, estadísticas, portada de Historia, funcionarios, turismo, galería y noticias. **Sigue sin publicarse:** la fecha en que Villa Pesqueira adquirió la categoría de municipio (1930 o 1934, fuentes en conflicto) y los hechos de 1865 y 1866 (una sola fuente).
+
+---
+
 ## 1. Alcance: qué sí y qué no pude verificar
 
 Esta sesión solo tiene acceso al repositorio `r0b3rt0g1l/Northa-Digital`. No se pudieron adjuntar `NorthaDigital/cmsmunicipal`, `NorthaDigital/villapesqueira` ni `NorthaDigital/carbo` (acceso denegado). Por eso:
