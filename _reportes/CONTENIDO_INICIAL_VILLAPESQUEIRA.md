@@ -35,7 +35,8 @@ Los campos de la API son `titulo`, `valor`, `subtitulo`, `iconoUrl` y `orden`.
 | 1 | `POBLACIÓN` | `1,043` | `HABITANTES` | `municipalConfig.datos.poblacion2020` del portal |
 | 2 | `SUPERFICIE` | `1124.3 km²` | (vacío) | `municipalConfig.datos.superficieKm2` del portal |
 
-- **Confirma las cifras.** No las verifiqué contra una fuente oficial (INEGI). La clave `poblacion2020` indica que es un dato de 2020.
+- **Población 1,043: confirmada.** Coincide con el Censo 2020 del INEGI, según Wikidata y la tabla de Wikipedia ES ("Total municipal 1043").
+- **Superficie 1124.3 km²: revisar con el ayuntamiento.** Wikidata da 1,123.2 km² para 2020, una diferencia pequeña. INAFED y Wikipedia ES dan 1,834 km², una cifra más antigua. La del portal es coherente con la cifra reciente, pero conviene confirmar con qué dato quiere trabajar el ayuntamiento.
 - **Solo dos, a propósito.** El respaldo actual tiene otras cuatro estadísticas con el valor "Por designar" (Comunidades, Programas, Obras realizadas, Inversión pública). Cuando la API devuelve al menos una estadística, el portal usa solo las de la API y no mezcla con el respaldo (lo verifiqué en San Javier). Si cargas las cuatro vacías, se mostrarían con "Por designar". Mi recomendación es cargar únicamente las que tienen dato real y agregar las demás cuando existan.
 - **Ícono (inferido del código del navegador, sin probar con datos reales):** el portal dibuja un ícono propio solo para las estadísticas del respaldo. Una estadística de la API sin `iconoUrl` quedaría con un espacio vacío en lugar del ícono. Las estadísticas de Carbó tienen todas un ícono. Elige un ícono para cada una en el panel.
 

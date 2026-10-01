@@ -59,47 +59,17 @@ redes: {
 
 El pie lee `redes.facebook` y, cuando tiene valor, dibuja el botón con el texto accesible "Facebook oficial del H. Ayuntamiento de Villa Pesqueira, Sonora". Carbó usa un enlace con `profile.php?id=…`; uno con nombre de usuario funciona igual.
 
-### 3.2 Historia (borrador)
+### 3.2 Historia y línea de tiempo
 
-En el mismo archivo, dentro de `historia`. **Es un borrador con solo datos que pude respaldar; el ayuntamiento debe validarlo y ampliarlo.**
+Se investigaron en internet. El texto listo para pegar (historia en `municipalConfig.historia` y hitos en el componente de Historia), las fuentes y lo que falta validar están en [HISTORIA_VILLAPESQUEIRA_BORRADOR.md](HISTORIA_VILLAPESQUEIRA_BORRADOR.md). **Solo está activo lo respaldado por más de una fuente**: la fundación en 1629, el origen del nombre, el decreto del 11 de febrero de 1867 y las tradiciones.
 
-```js
-historia: {
-  subtitulo: "Antigua misión de San José de Mátape, fundada en 1629 por el jesuita Martín de Azpilcueta.",
-  parrafos: [
-    "Villa Pesqueira, también conocida como Mátape, es la cabecera del municipio del mismo nombre, en la sierra baja de Sonora, a unos 100 km de Hermosillo. Nació como la misión de San José de Mátape, fundada en 1629 por el misionero jesuita Martín de Azpilcueta.",
-    "Sus habitantes se sostienen principalmente de la ganadería, la agricultura y el aprovechamiento de sus recursos forestales.",
-    "Entre sus celebraciones destacan la Semana Santa, con procesiones, la tradición de los fariseos y la danza de los matachines, y las fiestas de la Virgen en septiembre.",
-    // PENDIENTE (el ayuntamiento): fecha y decreto de erección del municipio, y hechos locales relevantes.
-  ],
-},
-```
-
-**Fuentes de ese borrador:**
-- El año, el fundador y el nombre "Mátape": `identidad.fundacion` de la propia configuración del portal y la entrada de Wikipedia en español "Villa Pesqueira" (consultada el 1 de octubre de 2026).
-- La distancia, las actividades y las fiestas: solo Wikipedia. **No es una fuente oficial.** Conviene contrastarlas con INAFED o con el ayuntamiento antes de publicar.
-
-### 3.3 Línea de tiempo
-
-Va en el componente de Historia del repo del portal. Para encontrarlo:
+Para encontrar el componente donde va la lista de hitos:
 
 ```bash
 grep -rn -E 'Historia de|aria-label.*Historia|ano:' components app 2>/dev/null | head
 ```
 
-En Carbó es una lista al inicio del módulo con este formato. En Villa Pesqueira esa lista está vacía:
-
-```js
-const hitos = [
-  { ano: "1629", titulo: "Fundación de la misión de San José de Mátape",
-    descripcion: "El misionero jesuita Martín de Azpilcueta funda la misión de San José de Mátape." },
-  // PENDIENTE (el ayuntamiento): resto de hitos, con año, título y descripción.
-];
-```
-
-Solo incluí el hito de 1629, que es el único que puedo respaldar. **No inventé el resto.** Si el ayuntamiento no tiene más fechas todavía, un solo hito se verá corto; es mejor eso que fechas dudosas.
-
-> **Dato por verificar antes de usarlo en la línea de tiempo.** La configuración tiene `municipioLibre: 1934`. Ese valor **no se muestra en ningún sitio hoy**. Pero el portal de San Javier dice: "San Javier es adscrito a Hermosillo (1930), Villa Pesqueira (1931) y La Colorada (1934)". Eso sugiere que Villa Pesqueira ya era municipio en 1931, así que 1934 podría no ser la fecha correcta de su erección. Confírmalo con el ayuntamiento o con el decreto del Congreso de Sonora.
+> **Dato en conflicto, no publicar todavía:** la fecha en que Villa Pesqueira adquiere la categoría de municipio. Wikipedia dice 11 de diciembre de 1930; Wikidata, citando a INAFED, dice 26 de junio de 1934. `municipioLibre: 1934` en la configuración **no se muestra en ningún sitio hoy**. Hay que confirmarlo con el ayuntamiento (ver el borrador de historia).
 
 ### 3.4 Después de editar
 
@@ -117,18 +87,20 @@ Solo incluí el hito de 1629, que es el único que puedo respaldar. **No invent�
 
 ## 4. Lo que se carga en el panel (tipo B)
 
-Según la ruta de Cloudinary que usa Carbó, la portada de Historia está en `apariencia/portada-historia`; **los nombres exactos de las pantallas del panel los verás tú**.
+**Esto lo cargan las personas que administran el panel del ayuntamiento**, y no requiere cambios de código ni despliegue: lo que publican allí llega al portal solo. Mientras no lo carguen, el portal muestra los estados vacíos.
 
-1. **Hero** (2 slides) y **estadísticas**: hoja [CONTENIDO_INICIAL_VILLAPESQUEIRA.md](CONTENIDO_INICIAL_VILLAPESQUEIRA.md).
+Según la ruta de Cloudinary que usa Carbó, la portada de Historia está en `apariencia/portada-historia`; **los nombres exactos de las pantallas del panel los verá quien lo opere**.
+
+1. **Hero** (2 slides) y **estadísticas**: hoja [CONTENIDO_INICIAL_VILLAPESQUEIRA.md](CONTENIDO_INICIAL_VILLAPESQUEIRA.md). Mientras el hero esté vacío, el home no lo muestra.
 2. **Portada de Historia:** una foto de la cabecera (misión, templo o vista del pueblo), de buena resolución.
-3. **Funcionarios** (presidente municipal, síndico, regidores y titulares de área), con cargo y foto. Las pantallas de Cabildo y Directorio se llenan solas con eso. Los correos y teléfonos que captures **se publican sin autenticación en la API**: confirma con cada persona antes de cargarlos.
+3. **Funcionarios** (presidente municipal, síndico, regidores y titulares de área), con cargo y foto. Las pantallas de Cabildo y Directorio se llenan solas con eso. Los correos y teléfonos que se capturen **se publican sin autenticación en la API**: conviene confirmarlo con cada persona.
 4. **Atractivos turísticos** y **galería**.
-5. Noticias de prueba, cuando lo anterior esté listo.
+5. Noticias.
 
 ---
 
-## 5. Qué necesito de ti
+## 5. Qué sigue
 
-1. **El texto de historia del ayuntamiento:** copia de su Facebook (pestaña "Información" o las publicaciones donde cuenten la historia) o del material que te hayan dado. Con eso afino los párrafos y armo los hitos con año, título y descripción.
-2. **Confirmar la fecha de erección del municipio** (ver el dato por verificar de §3.3).
-3. **Quién edita el repo del portal:** tú con los fragmentos de arriba, o me das acceso al repositorio de Villa Pesqueira para que yo lo haga y lo verifique.
+1. **Facebook, historia y línea de tiempo** (tipo A): cambios en el repo del portal. Faltan dos decisiones: quién los aplica (con los fragmentos de [§3](#3-cambios-de-código-tipo-a-listos-para-pegar) y de [HISTORIA_VILLAPESQUEIRA_BORRADOR.md](HISTORIA_VILLAPESQUEIRA_BORRADOR.md)), y si el repositorio del portal se comparte con esta sesión para que se haga y se verifique desde aquí.
+2. **Validar con el ayuntamiento** los datos del borrador de historia: sobre todo la fecha en que Villa Pesqueira adquirió la categoría de municipio, que las fuentes dan distinta.
+3. **Después del despliegue**, se verifica con `verificar-alta.mjs` y `barrido-portal.mjs` (comandos en §3.4).
