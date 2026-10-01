@@ -79,12 +79,12 @@ test('aplica los tres cambios y el resultado se puede importar', async () => {
   assert.equal(c.redes.facebook, 'https://www.facebook.com/ayuntamientodevillapesqueira');
   assert.equal(c.redes.instagram, null);
   assert.match(c.historia.subtitulo, /1629.*1867/);
-  assert.equal(c.historia.parrafos.length, 3, 'el párrafo de nivel 2 queda comentado');
+  assert.equal(c.historia.parrafos.length, 5, 'los 2 párrafos de nivel 2 quedan comentados');
   assert.ok(c.historia.parrafos[1].includes('«lugar de metales»'));
   assert.equal(c.identidad.nota, 'cadena con } y { dentro', 'no toca el resto');
   assert.equal(c.paleta.primario, '#23292E');
   const { hitos } = await importar(dir, 'hitos.js');
-  assert.deepEqual(hitos.map((h) => h.ano), ['1629', '1867-02-11']);
+  assert.deepEqual(hitos.map((h) => h.ano), ['1629', '1681', '1767', '1867-02-11']);
   assert.deepEqual(Object.keys(hitos[0]), ['ano', 'titulo', 'descripcion']);
 });
 
@@ -98,8 +98,8 @@ test('respeta el estilo de comillas de cada archivo y deja las fuentes comentada
   assert.match(cfg, /\/\/ Fuentes: https:\/\/es\.wikipedia\.org/);
   assert.match(hit, /\/\/ Fuente: .*wikipedia/);
   assert.match(hit, /\/\/ NIVEL 3 \(NO publicar\)/);
-  assert.match(hit, /^ {2}\/\/ \{\n {2}\/\/ {3}\/\/ Fuente: http:\/\/matape/m, 'los hitos de nivel 2 van comentados en una sola columna');
-  assert.doesNotMatch(hit, /^\s*ano: "186[56]"/m, 'nivel 2 no está activo');
+  assert.match(hit, /^ {2}\/\/ \{\n {2}\/\/ {3}\/\/ Fuente: http:\/\/notasdesonora/m, 'los hitos de nivel 2 van comentados en una sola columna');
+  assert.doesNotMatch(hit, /^\s*ano: "(1646|1656|1726|1865|1866)"/m, 'nivel 2 no está activo');
 });
 
 test('descomentar el nivel 2 (quitar `// ` de sus líneas) deja un archivo válido', async () => {
@@ -116,11 +116,12 @@ test('descomentar el nivel 2 (quitar `// ` de sus líneas) deja un archivo váli
   fs.writeFileSync(path.join(dir, 'lib', 'hitos.js'), des(leer(dir, 'hitos.js'), 7));
   fs.writeFileSync(path.join(dir, 'lib', 'municipalConfig.js'), des(leer(dir, 'municipalConfig.js'), 1));
   const { hitos } = await importar(dir, 'hitos.js');
-  assert.deepEqual(hitos.map((h) => h.ano), ['1629', '1865', '1866', '1867-02-11']);
-  assert.ok(hitos[1].descripcion.includes('Barceló'));
+  assert.deepEqual(hitos.map((h) => h.ano), ['1629', '1646', '1656', '1681', '1726', '1767', '1865', '1866', '1867-02-11']);
+  assert.ok(hitos.find((h) => h.ano === '1865').descripcion.includes('Barceló'));
   const { municipalConfig: c } = await importar(dir, 'municipalConfig.js');
-  assert.equal(c.historia.parrafos.length, 4);
-  assert.match(c.historia.parrafos[3], /Intervención Francesa/);
+  assert.equal(c.historia.parrafos.length, 7);
+  assert.match(c.historia.parrafos[5], /Pedro Bueno/);
+  assert.match(c.historia.parrafos[6], /Intervención Francesa/);
 });
 
 test('es idempotente: la segunda corrida no cambia nada', () => {
@@ -154,6 +155,25 @@ test('todo o nada: si historia ya tiene otro contenido, no se aplica ni facebook
   assert.equal(sha(dir), antes, 'facebook tampoco se escribió');
   assert.equal(correr(dir, '--forzar').code, 0, 'con --forzar sí reemplaza');
   assert.ok(!leer(dir, 'municipalConfig.js').includes('Algo que ya escribieron'));
+});
+
+test('si ya tiene la versión anterior, pide --forzar y con él la actualiza', () => {
+  const dir = fixture();
+  const viejoH = { ...M.HISTORIA, parrafos: M.HISTORIA.parrafos.slice(0, 1) };
+  const viejoT = M.HITOS.filter((h) => h.ano === '1629');
+  fs.writeFileSync(path.join(dir, 'lib', 'municipalConfig.js'), M.planHistoria(leer(dir, 'municipalConfig.js'), viejoH).src);
+  fs.writeFileSync(path.join(dir, 'lib', 'hitos.js'), M.planHitos(leer(dir, 'hitos.js'), viejoT).src);
+  const antes = sha(dir);
+  const sin = correr(dir, '--solo', 'historia,hitos');
+  assert.equal(sin.code, 1);
+  assert.match(sin.out, /contenido distinto; usa --forzar/);
+  assert.equal(sha(dir), antes);
+  const con = correr(dir, '--solo', 'historia,hitos', '--forzar');
+  assert.equal(con.code, 0, con.err);
+  assert.match(leer(dir, 'hitos.js'), /ano: "1767"/);
+  assert.match(leer(dir, 'municipalConfig.js'), /colegio incoado jesuita/);
+  const otra = correr(dir, '--solo', 'historia,hitos');
+  assert.match(otra.out, /Nada que cambiar/);
 });
 
 test('no pisa un enlace de Facebook distinto sin --forzar', () => {
@@ -259,9 +279,13 @@ test('uso: ayuda sale con 0 y una opción desconocida con 3', () => {
 });
 
 test('el contenido: nivel 1 activo, nivel 2 comentado, sin afirmar lo no verificado', () => {
-  assert.ok(M.HITOS.filter((h) => !h.pendiente).map((h) => h.ano).join() === '1629,1867-02-11');
+  assert.equal(M.HITOS.filter((h) => !h.pendiente).map((h) => h.ano).join(), '1629,1681,1767,1867-02-11');
+  const anos = M.HITOS.map((h) => h.ano);
+  assert.deepEqual(anos, [...anos].sort(), 'los hitos van en orden cronológico');
+  assert.equal(new Set(anos).size, anos.length, 'cada ano es único (se usa como key de React)');
   assert.ok(M.HITOS.filter((h) => h.pendiente).every((h) => /una sola fuente/.test(h.pendiente)));
   const todo = JSON.stringify([M.HISTORIA, M.HITOS]);
   assert.doesNotMatch(todo, /1930|1934/, 'la fecha en conflicto no se publica');
   assert.doesNotMatch(todo, /en honor|honra/i, 'no afirma el origen del apellido');
+  assert.doesNotMatch(todo, /\b51 jesuitas|50[.,]?000|25 de julio/, 'no incluye cifras o fechas de una sola fuente');
 });

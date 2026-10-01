@@ -34,9 +34,15 @@ const WP_LOC = 'https://es.wikipedia.org/wiki/Villa_Pesqueira';
 const BLOG = 'http://matapevillapesqueirason.blogspot.com/';
 const GUIA = 'https://www.guiaturisticamexico.com/municipio.php?id_e=26&id_Municipio=02094';
 const WIKIDATA = 'https://www.wikidata.org/wiki/Q3844354';
+const INAH = 'https://revistavertice.unison.mx/index.php/rvu/article/view/254';
+const SCIELO = 'https://www.scielo.org.mx/scielo.php?script=sci_arttext&pid=S1870-39252007000400012';
+const DIALNET = 'https://dialnet.unirioja.es/descarga/articulo/7099244.pdf';
+const NOTAS = 'http://notasdesonora.blogspot.com/2012/04/matape.html';
+
+const N2 = 'NIVEL 2: una sola fuente. Descomentar tras validar con el ayuntamiento.';
 
 export const HISTORIA = {
-  fuentes: [WP_MUN, WP_LOC, BLOG, GUIA],
+  fuentes: [WP_MUN, WP_LOC, BLOG, GUIA, INAH, SCIELO, DIALNET],
   subtitulo: 'De la misión jesuita de San José de Mátape, en 1629, a Villa Pesqueira, en 1867.',
   parrafos: [
     {
@@ -45,14 +51,27 @@ export const HISTORIA = {
     },
     {
       texto:
-        'Mátapa viene del opata: «mata», metal, y «pa», lugar; es decir, «lugar de metales». El 11 de febrero de 1867, por decreto del Congreso del Estado y a petición de sus habitantes, el pueblo de Mátape se erigió en Villa Pesqueira.',
+        'Mátapa viene del opata: «mata», metal, y «pa», lugar; es decir, «lugar de metales». En el siglo XVII la misión creció hasta contar con un colegio incoado jesuita y una importante actividad ganadera: en 1681, misioneros como Daniel Ángelo Marras llevaron ganado desde el colegio de San José de Mátape hasta Puebla de los Ángeles, en un viaje que tomaba cerca de un año.',
+    },
+    {
+      texto:
+        'En 1767, con el decreto de expulsión de la Compañía de Jesús, los misioneros de Sonora fueron reunidos en Mátape antes de ser llevados a Guaymas para su deportación a Europa.',
+    },
+    {
+      texto:
+        'El 11 de febrero de 1867, por decreto del Congreso del Estado y a petición de sus habitantes, el pueblo de Mátape se erigió en Villa Pesqueira.',
     },
     {
       texto:
         'Entre sus tradiciones destacan la Semana Santa, con procesiones, los fariseos y la danza de los matachines, y las fiestas de la Virgen en septiembre.',
     },
     {
-      pendiente: 'NIVEL 2: una sola fuente (blog de Mátape). Descomentar tras validar con el ayuntamiento.',
+      pendiente: `${N2} (Notas de Sonora; va después del párrafo 2.)`,
+      texto:
+        'El padre Pedro Bueno terminó en 1646 el templo de la misión, descrito treinta años después como una de las iglesias más hermosas y espaciosas de la provincia. Hacia 1726, el padre Cayetano Guerrero levantó junto a él una iglesia dedicada a la Virgen de Loreto.',
+    },
+    {
+      pendiente: `${N2} (blog de Mátape; va después del párrafo 3.)`,
       texto:
         'Durante la Intervención Francesa, en 1865, Mátape fue sitiado por jefes imperialistas; el general Jesús García Morales y los matapeños, a las órdenes de Ignacio Pesqueira, rechazaron el sitio. Al año siguiente, una columna de matapeños, baviácoras y nácoris participó en la toma de Hermosillo.',
     },
@@ -68,7 +87,45 @@ export const HITOS = [
       'El misionero jesuita Martín de Azpilcueta funda la misión de San José de Mátapa, hoy Villa Pesqueira (Mátape).',
   },
   {
-    pendiente: 'NIVEL 2: una sola fuente (blog de Mátape). Descomentar tras validar con el ayuntamiento.',
+    pendiente: N2,
+    fuente: NOTAS,
+    ano: '1646',
+    titulo: 'Templo de la misión',
+    descripcion:
+      'El padre Pedro Bueno termina el templo de la misión; treinta años después se le describía como una de las iglesias más hermosas y espaciosas de la provincia.',
+  },
+  {
+    pendiente: N2,
+    fuente: NOTAS,
+    ano: '1656',
+    titulo: 'Colegio incoado de Mátape',
+    descripcion:
+      'El padre Daniel Ángelo Marras sucede al padre Bueno; bajo su dirección, la escuela de la misión alcanza el rango de colegio incoado.',
+  },
+  {
+    fuente: INAH,
+    ano: '1681',
+    titulo: 'Ganado de Mátape a Puebla',
+    descripcion:
+      'Misioneros como Daniel Ángelo Marras llevan ganado desde el colegio incoado de San José de Mátape hasta Puebla de los Ángeles, en un viaje de cerca de un año.',
+  },
+  {
+    pendiente: N2,
+    fuente: NOTAS,
+    ano: '1726',
+    titulo: 'Iglesia de la Virgen de Loreto',
+    descripcion:
+      'Hacia 1726, el padre Cayetano Guerrero construye junto al templo principal una iglesia dedicada a la Virgen de Loreto.',
+  },
+  {
+    fuente: `${SCIELO} ; ${DIALNET}`,
+    ano: '1767',
+    titulo: 'Los jesuitas de Sonora, reunidos en Mátape',
+    descripcion:
+      'Con el decreto de expulsión de la Compañía de Jesús, los misioneros de Sonora son reunidos en Mátape antes de ser llevados a Guaymas para su deportación a Europa.',
+  },
+  {
+    pendiente: N2,
     fuente: BLOG,
     ano: '1865',
     titulo: 'Sitio de Mátape',
@@ -76,7 +133,7 @@ export const HITOS = [
       'Los jefes imperialistas Francisco Barceló y Santiago Campillo sitian Mátape; el general Jesús García Morales y los matapeños, a las órdenes de Ignacio Pesqueira, rechazan el sitio.',
   },
   {
-    pendiente: 'NIVEL 2: una sola fuente (blog de Mátape). Descomentar tras validar con el ayuntamiento.',
+    pendiente: N2,
     fuente: BLOG,
     ano: '1866',
     titulo: 'Toma de Hermosillo',
@@ -239,8 +296,10 @@ export function planHistoria(src, h = HISTORIA, forzar = false) {
   const cuerpo = src.slice(abre, cierre + 1);
   const norm = sinComentarios(cuerpo).replace(/\s+/g, '').replace(/,(?=[}\]])/g, '').replace(/""/g, "''");
   const activos = h.parrafos.filter((p) => !p.pendiente);
-  if (cuerpo.includes(activos[0].texto.slice(0, 60)) && cuerpo.includes(h.subtitulo.slice(0, 40))) {
-    return { estado: 'ya-estaba', mensaje: 'historia ya tiene el texto' };
+  const qh = comillasDe(src, "'");
+  const esta = (t) => cuerpo.includes(lit(t, qh).slice(1, -1));
+  if (esta(h.subtitulo) && activos.every((p) => esta(p.texto))) {
+    return { estado: 'ya-estaba', mensaje: 'historia ya tiene todo el texto' };
   }
   if (!HISTORIA_VACIA.has(norm) && !forzar) {
     return { estado: 'error', mensaje: 'historia ya tiene contenido distinto; usa --forzar para reemplazarlo' };
@@ -278,8 +337,11 @@ export function planHitos(src, hitos = HITOS, forzar = false) {
   if (cierre === -1) return { estado: 'error', mensaje: 'el arreglo «hitos» no cierra' };
   const cuerpo = src.slice(abre, cierre + 1);
   const activos = hitos.filter((x) => !x.pendiente);
-  if (activos.every((x) => new RegExp(`ano\\s*:\\s*['"\`]${x.ano}['"\`]`).test(sinComentarios(cuerpo)))) {
-    return { estado: 'ya-estaba', mensaje: 'hitos ya tiene los hitos' };
+  const qa = comillasDe(src, '"');
+  const limpio = sinComentarios(cuerpo);
+  const hitoPresente = (x) => [x.ano, x.titulo, x.descripcion].every((t) => limpio.includes(lit(t, qa).slice(1, -1)));
+  if (activos.every(hitoPresente)) {
+    return { estado: 'ya-estaba', mensaje: 'hitos ya tiene todos los hitos' };
   }
   const norm = sinComentarios(cuerpo).replace(/\s+/g, '');
   if (norm !== '[]' && !forzar) return { estado: 'error', mensaje: 'hitos ya tiene contenido distinto; usa --forzar para reemplazarlo' };
