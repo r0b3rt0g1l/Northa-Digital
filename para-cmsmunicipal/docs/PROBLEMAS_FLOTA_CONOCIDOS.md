@@ -38,14 +38,16 @@
   - **(b)** Delegar `northa.digital` y activar Cloudflare Email Routing hacia un buzón real.
 - **Pendiente:** confirmar cómo entran hoy los admins de los otros 14 municipios.
 
-### P-3. La revalidación bajo demanda depende de configuración que puede no estar desplegada
-- ✔︎ Los portales tienen `POST /api/revalidate` (probado en Villa Pesqueira y en Carbó: `OPTIONS` → 204 `allow: OPTIONS, POST`).
-- ✔︎ Sin ese endpoint, `/` y `/acciones-de-gobierno` tardan unos 300 s (ISR), más una visita que dispare la regeneración. `/gobierno/*`, `/turismo`, `/galeria` y `/transparencia` tardan 17 a 26 minutos o más.
-- 🔎 Si el backend saca la URL del portal de `flota.config.json`, un municipio nuevo no se revalida hasta que su entrada llegue a `main` y se redespliegue Render. Si la saca de `Municipio.dominio`, **Villa Pesqueira será el primer municipio con `dominio = null`**, y no se revalidaría nunca.
+### P-3. Los cambios del panel no llegan al portal de un municipio nuevo (causa confirmada en Villa Pesqueira)
+- ✔︎ **Cómo funciona:** al guardar algo, el backend (`src/middleware/invalidarCache.js`) hace `POST https://${dominio}/api/revalidate` con la cabecera `x-revalidate-secret` (variable `REVALIDATE_SECRET` de Render). El portal (`app/api/revalidate/route.js`) valida esa cabecera contra su propio `REVALIDATE_SECRET` y llama a `revalidateTag(tag)`, con tags del tipo `${slug}:${recurso}`. Si el aviso no llega, el portal solo se pone al día cuando caduca su caché de datos (alrededor de 1 hora en los datos del municipio). **Un redeploy no limpia esa caché**, según el comentario del propio código.
+- ✔︎ **Villa Pesqueira tenía las dos piezas rotas** (comprobado el 1 de octubre de 2026):
+  1. El proyecto de Vercel no tenía `REVALIDATE_SECRET`: un `POST` sin clave respondía `REVALIDATE_SECRET no configurado`, mientras Carbó, Mazatán y Baviácora responden `secreto inválido`.
+  2. `Municipio.dominio = null`, así que el backend no tenía a qué dirección mandar el aviso.
+- **Síntomas:** la primera portada tardó 48 minutos y solo apareció cuando caducó la caché. Una portada reemplazada quedó como `portadaUrl: null` en el home aunque la API ya tenía la nueva.
 - **Solución:**
-  - Documentar de dónde sale la URL, con `grep -rn -i revalidat` en `cmsmunicipal`.
-  - Si usa el dominio, recurrir a `<slug>.vercel.app` cuando `dominio` sea `null`.
-  - Registrar en un log cada llamada fallida a `/api/revalidate`.
+  1. Copiar `REVALIDATE_SECRET` (el mismo valor que usan los demás portales y Render) al proyecto de Vercel y redesplegar.
+  2. Poner en `dominio` el host donde vive el portal: el provisional `<slug>.vercel.app` mientras no haya dominio propio, y el definitivo cuando exista.
+- **Prevención (checklist de PRE-ALTA):** ningún portal se da de alta sin `REVALIDATE_SECRET` en Vercel y sin `dominio` en la base de datos.
 
 ### P-5. `alta-municipio.js` falla en Cloudinary si no se corre desde la raíz
 - 📝 Reportado por ti; no se pudo ver el código.
