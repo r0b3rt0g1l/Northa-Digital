@@ -13,11 +13,16 @@ Código y detalle técnico: `para-portales/sevac-enlaces/LEEME.md`.
 
 Nota: el Chromium sin interfaz de las pruebas no dibuja PDFs, por eso el visor sale en blanco en la captura. Que el PDF se vea dentro del visor se confirma en un navegador normal.
 
-## Resto de la flota
+## Flota completa: 15 de 15 (1 de octubre de 2026, 22:03 UTC)
 
-| Portal | Estado |
-|---|---|
-| Aconchi, Bacanora, Banámichi, Baviácora, Carbó, Cucurpe, Huachinera, Mazatán, Rayón, Sahuaripa, San Javier | Aplicado. `verificar-enlaces-sevac.mjs`: **OK en las 12 páginas** (incluida Bacadéhuachi), **137 documentos** sin fallas y ninguna dirección de northadigital/Cloudinary en las páginas. Salida: `flota-12-verificacion.txt` |
-| Documento más grande de la flota | Banámichi, `…/2025/t2/evaluacion-fismdf-2025.pdf`: **90,787,806 bytes completos** a través del portal, `200 application/pdf`. El streaming aguanta |
-| Soyopa | Pendiente. La primera corrida lo saltó por un archivo suelto (`cinemagoer.db`); el script ya no se bloquea por eso |
-| Tepache, Villa Pesqueira | Pendientes. Se quedaron sin procesar por un error del script, ya corregido: con `--build` se detenía ante cualquier falla, no solo ante un build roto |
+`verificar-enlaces-sevac.mjs --todos`: **Todo bien**. Salida: `flota-15-verificacion-2203utc.txt`.
+
+- **15 páginas SEvAC:** ninguna publica ya direcciones de `archivos.northadigital.com` ni de Cloudinary.
+- **172 documentos:** todos responden `200 application/pdf` desde el dominio de su municipio, con el mismo tamaño que el original y sin redirección.
+- **Villa Pesqueira:** todavía sin documentos. La ruta nueva ya responde con su propio 404 ("Documento no encontrado").
+- **Documento más grande de la flota:** Banámichi, `…/2025/t2/evaluacion-fismdf-2025.pdf`, de 90,787,806 bytes. Se descargó completo a través del portal.
+- **Archivos subidos durante la corrida:** Huachinera pasó de 19 a 20 documentos y Tepache de 21 a 22. Los nuevos también funcionan.
+
+Incidencias de la corrida, ya resueltas:
+- Soyopa tenía un archivo suelto (`cinemagoer.db`) y el script se detuvo como si fuera un build roto, así que Tepache y Villa Pesqueira no se procesaron.
+- El script ya está corregido (`ed0a007`): los archivos sueltos solo se avisan, y la corrida solo se detiene si falla un build.
