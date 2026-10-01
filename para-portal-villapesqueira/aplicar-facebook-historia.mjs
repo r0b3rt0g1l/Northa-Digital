@@ -38,20 +38,29 @@ const INAH = 'https://revistavertice.unison.mx/index.php/rvu/article/view/254';
 const SCIELO = 'https://www.scielo.org.mx/scielo.php?script=sci_arttext&pid=S1870-39252007000400012';
 const DIALNET = 'https://dialnet.unirioja.es/descarga/articulo/7099244.pdf';
 const NOTAS = 'http://notasdesonora.blogspot.com/2012/04/matape.html';
+const TESIS_UNAM = 'https://tesiunamdocumentos.dgb.unam.mx/ptd2018/febrero/0770139/0770139.pdf';
+const ALAS_SPICER = 'https://cdsa.aacademica.org/000-062/465.pdf';
+const YETMAN = 'https://jsw.arizona.edu/wp-content/uploads/2020/03/Pedro-de-Perea.pdf';
+const OFICIAL = 'https://villapesqueira.gob.mx/presidenta-municipal-2/';
 
-const N2 = 'NIVEL 2: una sola fuente. Descomentar tras validar con el ayuntamiento.';
+// Hechos de una sola fuente que el operador del portal confirmó publicar (1-oct-2026).
+const UNA_FUENTE = 'Una sola fuente; publicado con la confirmación del operador del portal (1-oct-2026).';
 
 export const HISTORIA = {
-  fuentes: [WP_MUN, WP_LOC, BLOG, GUIA, INAH, SCIELO, DIALNET],
+  fuentes: [WP_MUN, WP_LOC, BLOG, GUIA, INAH, SCIELO, DIALNET, TESIS_UNAM, ALAS_SPICER, YETMAN, NOTAS],
   subtitulo: 'De la misión jesuita de San José de Mátape, en 1629, a Villa Pesqueira, en 1867.',
   parrafos: [
     {
       texto:
-        'Villa Pesqueira, también llamada Mátape, se encuentra al pie de la sierra baja de Sonora, a unos 100 km de Hermosillo. Su origen es la misión de San José de Mátapa, fundada en 1629 por el padre jesuita Martín de Azpilcueta.',
+        'Villa Pesqueira, también llamada Mátape, se encuentra al pie de la sierra baja de Sonora, a unos 100 km de Hermosillo. El valle de Mátape lo habitaban los aibinos, de la nación eudeve. En 1622 llegaron los primeros misioneros jesuitas, Tomás Basilio y Francisco Oliñano, y en 1629 el padre Martín de Azpilcueta fundó la misión de San José de Mátapa.',
     },
     {
       texto:
-        'Mátapa viene del opata: «mata», metal, y «pa», lugar; es decir, «lugar de metales». En el siglo XVII la misión creció hasta contar con un colegio incoado jesuita y una importante actividad ganadera: en 1681, misioneros como Daniel Ángelo Marras llevaron ganado desde el colegio de San José de Mátape hasta Puebla de los Ángeles, en un viaje que tomaba cerca de un año.',
+        'Mátapa viene del opata: «mata», metal, y «pa», lugar; es decir, «lugar de metales». En 1639 se estableció en Mátape una escuela para la doctrina de los indígenas, y en 1646 el padre Pedro Bueno terminó el templo de la misión, descrito años después como una de las iglesias más hermosas y espaciosas de la provincia.',
+    },
+    {
+      texto:
+        'Con el padre Daniel Ángelo Marras la escuela alcanzó el rango de colegio incoado y la misión desarrolló una importante actividad ganadera: en 1681 se llevó ganado desde el colegio de San José de Mátape hasta Puebla de los Ángeles, en un viaje que tomaba cerca de un año. Hacia 1726, el padre Cayetano Guerrero levantó junto al templo una iglesia dedicada a la Virgen de Loreto.',
     },
     {
       texto:
@@ -59,44 +68,46 @@ export const HISTORIA = {
     },
     {
       texto:
-        'El 11 de febrero de 1867, por decreto del Congreso del Estado y a petición de sus habitantes, el pueblo de Mátape se erigió en Villa Pesqueira.',
+        'Durante la Intervención Francesa, en 1865, Mátape fue sitiado por jefes imperialistas; el general Jesús García Morales y los matapeños, a las órdenes de Ignacio Pesqueira, rechazaron el sitio, y al año siguiente participaron en la toma de Hermosillo. El 11 de febrero de 1867, por decreto del Congreso del Estado y a petición de sus habitantes, el pueblo de Mátape se erigió en Villa Pesqueira.',
     },
     {
       texto:
-        'Entre sus tradiciones destacan la Semana Santa, con procesiones, los fariseos y la danza de los matachines, y las fiestas de la Virgen en septiembre.',
-    },
-    {
-      pendiente: `${N2} (Notas de Sonora; va después del párrafo 2.)`,
-      texto:
-        'El padre Pedro Bueno terminó en 1646 el templo de la misión, descrito treinta años después como una de las iglesias más hermosas y espaciosas de la provincia. Hacia 1726, el padre Cayetano Guerrero levantó junto a él una iglesia dedicada a la Virgen de Loreto.',
-    },
-    {
-      pendiente: `${N2} (blog de Mátape; va después del párrafo 3.)`,
-      texto:
-        'Durante la Intervención Francesa, en 1865, Mátape fue sitiado por jefes imperialistas; el general Jesús García Morales y los matapeños, a las órdenes de Ignacio Pesqueira, rechazaron el sitio. Al año siguiente, una columna de matapeños, baviácoras y nácoris participó en la toma de Hermosillo.',
+        'Entre sus tradiciones destacan la Semana Santa, con procesiones, los fariseos y la danza de los matachines, y las fiestas de la Virgen en septiembre. Hoy el municipio tiene 1,043 habitantes (Censo 2020) y su administración 2024-2027 la encabeza la presidenta municipal Francisca Icela Córdova Gálvez.',
     },
   ],
 };
 
 export const HITOS = [
   {
-    fuente: `${WP_LOC} ; ${BLOG} ; ${GUIA}`,
+    fuente: `${TESIS_UNAM} (Olimaño, en esa grafía) ; ${ALAS_SPICER} (cita a Spicer, Cycles of Conquest, p. 93)`,
+    ano: '1622',
+    titulo: 'Llegan los primeros misioneros',
+    descripcion:
+      'Los padres jesuitas Tomás Basilio y Francisco Oliñano llegan a los pueblos del valle de Mátape. Los aibinos, de la nación eudeve, se oponen, y el capitán Diego Martínez de Hurdaide envía una expedición que los vence.',
+  },
+  {
+    fuente: `${WP_LOC} ; ${YETMAN} ; ${BLOG} ; ${GUIA}`,
     ano: '1629',
     titulo: 'Fundación de San José de Mátapa',
     descripcion:
       'El misionero jesuita Martín de Azpilcueta funda la misión de San José de Mátapa, hoy Villa Pesqueira (Mátape).',
   },
   {
-    pendiente: N2,
-    fuente: NOTAS,
+    fuente: `${TESIS_UNAM} ; ${NOTAS}`,
+    ano: '1639',
+    titulo: 'Escuela de la misión',
+    descripcion:
+      'Se establece en Mátape una escuela para la doctrina de los indígenas, origen del futuro colegio de la misión.',
+  },
+  {
+    fuente: `${NOTAS} — ${UNA_FUENTE}`,
     ano: '1646',
     titulo: 'Templo de la misión',
     descripcion:
-      'El padre Pedro Bueno termina el templo de la misión; treinta años después se le describía como una de las iglesias más hermosas y espaciosas de la provincia.',
+      'El padre Pedro Bueno termina el templo de la misión; años después se le describía como una de las iglesias más hermosas y espaciosas de la provincia.',
   },
   {
-    pendiente: N2,
-    fuente: NOTAS,
+    fuente: `${NOTAS} — ${UNA_FUENTE}`,
     ano: '1656',
     titulo: 'Colegio incoado de Mátape',
     descripcion:
@@ -110,8 +121,7 @@ export const HITOS = [
       'Misioneros como Daniel Ángelo Marras llevan ganado desde el colegio incoado de San José de Mátape hasta Puebla de los Ángeles, en un viaje de cerca de un año.',
   },
   {
-    pendiente: N2,
-    fuente: NOTAS,
+    fuente: `${NOTAS} — ${UNA_FUENTE}`,
     ano: '1726',
     titulo: 'Iglesia de la Virgen de Loreto',
     descripcion:
@@ -125,16 +135,14 @@ export const HITOS = [
       'Con el decreto de expulsión de la Compañía de Jesús, los misioneros de Sonora son reunidos en Mátape antes de ser llevados a Guaymas para su deportación a Europa.',
   },
   {
-    pendiente: N2,
-    fuente: BLOG,
+    fuente: `${BLOG} — ${UNA_FUENTE}`,
     ano: '1865',
     titulo: 'Sitio de Mátape',
     descripcion:
       'Los jefes imperialistas Francisco Barceló y Santiago Campillo sitian Mátape; el general Jesús García Morales y los matapeños, a las órdenes de Ignacio Pesqueira, rechazan el sitio.',
   },
   {
-    pendiente: N2,
-    fuente: BLOG,
+    fuente: `${BLOG} — ${UNA_FUENTE}`,
     ano: '1866',
     titulo: 'Toma de Hermosillo',
     descripcion:
@@ -146,6 +154,13 @@ export const HITOS = [
     titulo: 'Se erige la Villa Pesqueira',
     descripcion:
       'Por decreto del Congreso del Estado, y a petición de sus habitantes, el pueblo de Mátape se erige en Villa Pesqueira.',
+  },
+  {
+    fuente: `${WP_MUN} (ficha: presidente municipal) ; ${OFICIAL} (sitio oficial, visto en el buscador)`,
+    ano: '2024',
+    titulo: 'Administración 2024-2027',
+    descripcion:
+      'Inicia la administración municipal 2024-2027, encabezada por la presidenta municipal Francisca Icela Córdova Gálvez.',
   },
 ];
 

@@ -64,24 +64,35 @@ La fuente de verdad es el script `para-portal-villapesqueira/aplicar-facebook-hi
 
 **Subtítulo:** De la misión jesuita de San José de Mátape, en 1629, a Villa Pesqueira, en 1867.
 
-**Párrafos:**
+**Párrafos (versión publicada, 1 de octubre de 2026):**
 
-1. Villa Pesqueira, también llamada Mátape, se encuentra al pie de la sierra baja de Sonora, a unos 100 km de Hermosillo. Su origen es la misión de San José de Mátapa, fundada en 1629 por el padre jesuita Martín de Azpilcueta.
-2. Mátapa viene del opata: «mata», metal, y «pa», lugar; es decir, «lugar de metales». En el siglo XVII la misión creció hasta contar con un colegio incoado jesuita y una importante actividad ganadera: en 1681, misioneros como Daniel Ángelo Marras llevaron ganado desde el colegio de San José de Mátape hasta Puebla de los Ángeles, en un viaje que tomaba cerca de un año.
-3. En 1767, con el decreto de expulsión de la Compañía de Jesús, los misioneros de Sonora fueron reunidos en Mátape antes de ser llevados a Guaymas para su deportación a Europa.
-4. El 11 de febrero de 1867, por decreto del Congreso del Estado y a petición de sus habitantes, el pueblo de Mátape se erigió en Villa Pesqueira.
-5. Entre sus tradiciones destacan la Semana Santa, con procesiones, los fariseos y la danza de los matachines, y las fiestas de la Virgen en septiembre.
+1. Villa Pesqueira, también llamada Mátape, se encuentra al pie de la sierra baja de Sonora, a unos 100 km de Hermosillo. El valle de Mátape lo habitaban los aibinos, de la nación eudeve. En 1622 llegaron los primeros misioneros jesuitas, Tomás Basilio y Francisco Oliñano, y en 1629 el padre Martín de Azpilcueta fundó la misión de San José de Mátapa.
+2. Mátapa viene del opata: «mata», metal, y «pa», lugar; es decir, «lugar de metales». En 1639 se estableció en Mátape una escuela para la doctrina de los indígenas, y en 1646 el padre Pedro Bueno terminó el templo de la misión, descrito años después como una de las iglesias más hermosas y espaciosas de la provincia.
+3. Con el padre Daniel Ángelo Marras la escuela alcanzó el rango de colegio incoado y la misión desarrolló una importante actividad ganadera: en 1681 se llevó ganado desde el colegio de San José de Mátape hasta Puebla de los Ángeles, en un viaje que tomaba cerca de un año. Hacia 1726, el padre Cayetano Guerrero levantó junto al templo una iglesia dedicada a la Virgen de Loreto.
+4. En 1767, con el decreto de expulsión de la Compañía de Jesús, los misioneros de Sonora fueron reunidos en Mátape antes de ser llevados a Guaymas para su deportación a Europa.
+5. Durante la Intervención Francesa, en 1865, Mátape fue sitiado por jefes imperialistas; el general Jesús García Morales y los matapeños, a las órdenes de Ignacio Pesqueira, rechazaron el sitio, y al año siguiente participaron en la toma de Hermosillo. El 11 de febrero de 1867, por decreto del Congreso del Estado y a petición de sus habitantes, el pueblo de Mátape se erigió en Villa Pesqueira.
+6. Entre sus tradiciones destacan la Semana Santa, con procesiones, los fariseos y la danza de los matachines, y las fiestas de la Virgen en septiembre. Hoy el municipio tiene 1,043 habitantes (Censo 2020) y su administración 2024-2027 la encabeza la presidenta municipal Francisca Icela Córdova Gálvez.
 
-**Línea de tiempo (publicada):**
+**Línea de tiempo (12 hitos):**
 
-| Año | Título | Descripción |
-|---|---|---|
-| 1629 | Fundación de San José de Mátapa | El misionero jesuita Martín de Azpilcueta funda la misión de San José de Mátapa, hoy Villa Pesqueira (Mátape). |
-| 1681 | Ganado de Mátape a Puebla | Misioneros como Daniel Ángelo Marras llevan ganado desde el colegio incoado de San José de Mátape hasta Puebla de los Ángeles, en un viaje de cerca de un año. |
-| 1767 | Los jesuitas de Sonora, reunidos en Mátape | Con el decreto de expulsión de la Compañía de Jesús, los misioneros de Sonora son reunidos en Mátape antes de ser llevados a Guaymas para su deportación a Europa. |
-| 1867-02-11 | Se erige la Villa Pesqueira | Por decreto del Congreso del Estado, y a petición de sus habitantes, el pueblo de Mátape se erige en Villa Pesqueira. |
+| Año | Título | Descripción | Respaldo |
+|---|---|---|---|
+| 1622 | Llegan los primeros misioneros | Los padres jesuitas Tomás Basilio y Francisco Oliñano llegan a los pueblos del valle de Mátape. Los aibinos, de la nación eudeve, se oponen, y el capitán Diego Martínez de Hurdaide envía una expedición que los vence. | varias fuentes |
+| 1629 | Fundación de San José de Mátapa | El misionero jesuita Martín de Azpilcueta funda la misión de San José de Mátapa, hoy Villa Pesqueira (Mátape). | varias fuentes |
+| 1639 | Escuela de la misión | Se establece en Mátape una escuela para la doctrina de los indígenas, origen del futuro colegio de la misión. | varias fuentes |
+| 1646 | Templo de la misión | El padre Pedro Bueno termina el templo de la misión; años después se le describía como una de las iglesias más hermosas y espaciosas de la provincia. | una sola fuente, confirmado por el operador |
+| 1656 | Colegio incoado de Mátape | El padre Daniel Ángelo Marras sucede al padre Bueno; bajo su dirección, la escuela de la misión alcanza el rango de colegio incoado. | una sola fuente, confirmado por el operador |
+| 1681 | Ganado de Mátape a Puebla | Misioneros como Daniel Ángelo Marras llevan ganado desde el colegio incoado de San José de Mátape hasta Puebla de los Ángeles, en un viaje de cerca de un año. | varias fuentes |
+| 1726 | Iglesia de la Virgen de Loreto | Hacia 1726, el padre Cayetano Guerrero construye junto al templo principal una iglesia dedicada a la Virgen de Loreto. | una sola fuente, confirmado por el operador |
+| 1767 | Los jesuitas de Sonora, reunidos en Mátape | Con el decreto de expulsión de la Compañía de Jesús, los misioneros de Sonora son reunidos en Mátape antes de ser llevados a Guaymas para su deportación a Europa. | varias fuentes |
+| 1865 | Sitio de Mátape | Los jefes imperialistas Francisco Barceló y Santiago Campillo sitian Mátape; el general Jesús García Morales y los matapeños, a las órdenes de Ignacio Pesqueira, rechazan el sitio. | una sola fuente, confirmado por el operador |
+| 1866 | Toma de Hermosillo | Una columna de matapeños, baviácoras y nácoris, al mando del general Jesús García Morales, participa en la toma de Hermosillo, ocupada por los franceses. | una sola fuente, confirmado por el operador |
+| 1867-02-11 | Se erige la Villa Pesqueira | Por decreto del Congreso del Estado, y a petición de sus habitantes, el pueblo de Mátape se erige en Villa Pesqueira. | varias fuentes |
+| 2024 | Administración 2024-2027 | Inicia la administración municipal 2024-2027, encabezada por la presidenta municipal Francisca Icela Córdova Gálvez. | varias fuentes |
 
-**Comentados, listos para activar cuando el ayuntamiento los valide (nivel 2):** 1646 (templo de la misión), 1656 (colegio incoado), 1726 (iglesia de la Virgen de Loreto), 1865 (sitio de Mátape) y 1866 (toma de Hermosillo), más dos párrafos con esos hechos. Para activarlos, se quita `// ` de sus líneas en el archivo (cada hito comentado ocupa 7 líneas) y se hace commit.
+Los hechos de **una sola fuente** (1646, 1656, 1726, 1865 y 1866) se publicaron porque el operador del portal confirmó la información el 1 de octubre de 2026. Cada uno lo indica en su comentario de fuente. **Sigue sin publicarse** la fecha de erección del municipio (1930 o 1934, fuentes en conflicto).
+
+**Fuentes nuevas de esta versión, leídas directamente:** tesis de la UNAM sobre el Arte de la lengua tegüima (1622, 1639; escribe "Olimaño"); ponencia del XXVII Congreso ALAS que cita a Spicer, *Cycles of Conquest*, p. 93 (1622: oposición de los aibinos y expedición de Hurdaide); David Yetman, *Pedro de Perea and the Colonization of Sonora* (Journal of the Southwest), que confirma la llegada a Mátape en 1629. La presidenta municipal 2024-2027, Francisca Icela Córdova Gálvez, sale de la ficha de Wikipedia y del sitio oficial villapesqueira.gob.mx; este último solo se vio en el buscador, porque no abre desde este entorno.
 
 **Cómo actualizar el portal si ya aplicaste la versión anterior:**
 
