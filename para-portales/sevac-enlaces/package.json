@@ -1,0 +1,9 @@
+{
+  "name": "sevac-enlaces",
+  "private": true,
+  "type": "module",
+  "description": "Enlaces SEvAC en el dominio del municipio (se copia a cada portal; este package.json solo sirve para correr las pruebas aquí)",
+  "scripts": {
+    "test": "node --test pruebas/*.test.mjs"
+  }
+}
