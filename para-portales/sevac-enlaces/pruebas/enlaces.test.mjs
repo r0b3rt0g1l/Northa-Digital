@@ -13,7 +13,7 @@ import {
   resolverDocumento,
   origenPermitido,
   nombreDeDescarga,
-} from "../lib/sevac/enlaces.js";
+} from "../lib/sevac-enlaces/enlaces.js";
 
 const datos = (s) => JSON.parse(fs.readFileSync(new URL(`./datos/${s}.json`, import.meta.url), "utf8"));
 const MUNICIPIOS = ["bacadehuachi", "banamichi", "tepache", "aconchi"];
@@ -129,7 +129,23 @@ test("nombre de descarga", () => {
 
 // El portal calcula los enlaces con el documento ya normalizado (url, nombreArchivo) y la ruta que
 // sirve el archivo con el crudo de la API (archivoUrl, fileName). Tienen que coincidir siempre.
-const normalizar = (d) => ({ id: d.id, titulo: d.titulo, descripcion: d.descripcion, url: d.archivoUrl, nombreArchivo: d.fileName, categoria: d.categoria, tipo: d.tipo, anio: d.anio, trimestre: d.trimestre, creadoEn: d.creadoEn, actualizadoEn: d.actualizadoEn });
+// Igual que mapDocumento() de lib/content/cms.ts del portal.
+const normalizar = (item) => ({
+  id: item.id,
+  titulo: item.titulo,
+  descripcion: item.descripcion || "",
+  url: item.archivoUrl,
+  portadaUrl: item.portadaUrl ?? null,
+  tamanoBytes: item.fileSize ?? null,
+  nombreArchivo: item.fileName ?? null,
+  categoria: item.categoria || null,
+  tipo: item.tipo || "PDF",
+  ambito: null,
+  anio: item.anio ?? null,
+  trimestre: item.trimestre ?? null,
+  creadoEn: item.creadoEn ?? null,
+  actualizadoEn: item.actualizadoEn ?? null,
+});
 for (const m of MUNICIPIOS) {
   test(`${m}: documento crudo y normalizado dan la misma ruta`, () => {
     const crudos = datos(m);

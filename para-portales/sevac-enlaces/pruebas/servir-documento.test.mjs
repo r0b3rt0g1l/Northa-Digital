@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { crearManejador } from "../lib/sevac/servir-documento.js";
+import { crearManejador } from "../lib/sevac-enlaces/servir-documento.js";
 
 const DOCS = JSON.parse(fs.readFileSync(new URL("./datos/bacadehuachi.json", import.meta.url), "utf8"));
 const PUENTE = DOCS.find((d) => d.titulo === "MANTENIMIENTO DE PUENTE PEATONAL");
@@ -33,6 +33,12 @@ function fetchFalso({ docs = DOCS, docsFrescos = docs, apiEstado = 200, origen }
 }
 
 const pedir = (manejar, ruta, init) => manejar(new Request(SITIO + ruta, init));
+
+test("usa la URL de la API que se le pase (NEXT_PUBLIC_API_URL), sin barra final", async () => {
+  const f = fetchFalso({ docs: [] });
+  await pedir(crearManejador({ municipio: "bacadehuachi", api: "https://otra.api/", fetchImpl: f }), RUTA_PUENTE);
+  assert.equal(f.llamadas[0].url, "https://otra.api/api/municipios/bacadehuachi/sevac");
+});
 
 test("sirve el PDF directo, en el dominio del municipio, con nombre legible", async () => {
   const f = fetchFalso();
@@ -119,8 +125,13 @@ test("rutas fuera de /transparencia/sevac y slug inválido", async () => {
   const r = await pedir(crearManejador({ municipio: "bacadehuachi", fetchImpl: f }), "/otra/cosa.pdf");
   assert.equal(r.status, 404);
   assert.equal(f.llamadas.length, 0);
-  assert.throws(() => crearManejador({ municipio: "../x" }), /slug/);
-  assert.throws(() => crearManejador({}), /slug/);
+  // Sin configuración no rompe el build: responde 503 y no consulta nada.
+  for (const municipio of ["../x", undefined, "municipio"]) {
+    const f3 = fetchFalso();
+    const r3 = await pedir(crearManejador({ municipio, fetchImpl: f3 }), RUTA_PUENTE);
+    assert.equal(r3.status, 503, String(municipio));
+    assert.equal(f3.llamadas.length, 0);
+  }
 });
 
 test("Range con formato raro no se reenvía", async () => {

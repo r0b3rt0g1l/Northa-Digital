@@ -26,7 +26,7 @@ import {
 
 export const API_POR_DEFECTO = "https://api.northadigital.com";
 export const REVALIDAR_S = 300;
-const ESPERA_API_MS = 15_000;
+const ESPERA_API_MS = 30_000; // igual que cmsFetch: la API puede tardar si Render arranca en frío
 const CABECERAS_DEL_ORIGEN = ["content-length", "content-range", "accept-ranges", "etag", "last-modified"];
 const CABECERAS_CONDICIONALES = ["if-none-match", "if-modified-since", "if-range"];
 const ESTADOS_VALIDOS = new Set([200, 206, 304, 416]);
@@ -46,17 +46,20 @@ const noDisponible = (estado, metodo) =>
   pagina(estado, "Documento no disponible por el momento", "No pudimos traer el documento. Intenta de nuevo en unos minutos.", metodo);
 
 /**
- * Crea el manejador de la ruta. `municipio` es el slug del municipio en el CMS.
+ * Crea el manejador de la ruta. `municipio` es el slug del municipio en el CMS y `api` la URL
+ * base de la API (en el portal: NEXT_PUBLIC_MUNICIPIO_SLUG y NEXT_PUBLIC_API_URL, como cms.ts).
  * `fetchImpl` existe para las pruebas; en el portal se usa el fetch de Next.
+ * Si falta la configuración no rompe el build: responde 503 al pedir un documento.
  */
-export function crearManejador({ municipio, api = API_POR_DEFECTO, fetchImpl = globalThis.fetch, revalidar = REVALIDAR_S } = {}) {
-  if (!/^[a-z0-9-]+$/.test(String(municipio ?? ""))) throw new Error("crearManejador: falta el slug del municipio");
+export function crearManejador({ municipio, api, fetchImpl = globalThis.fetch, revalidar = REVALIDAR_S } = {}) {
+  const configurado = /^[a-z0-9-]+$/.test(String(municipio ?? "")) && municipio !== "municipio";
+  const base = String(api || API_POR_DEFECTO).replace(/\/+$/, "");
 
   async function listar(fresco) {
     const opciones = { headers: { accept: "application/json" }, signal: AbortSignal.timeout(ESPERA_API_MS) };
     if (fresco) opciones.cache = "no-store";
     else opciones.next = { revalidate: revalidar, tags: [`${municipio}:sevac`] };
-    const r = await fetchImpl(`${api}/api/municipios/${municipio}/sevac`, opciones);
+    const r = await fetchImpl(`${base}/api/municipios/${municipio}/sevac`, opciones);
     if (!r.ok) throw new Error(`API respondió ${r.status}`);
     const datos = await r.json();
     if (Array.isArray(datos)) return datos;
@@ -69,6 +72,7 @@ export function crearManejador({ municipio, api = API_POR_DEFECTO, fetchImpl = g
     // Se usa la ruta pedida, no los params: así no importa cómo se llamen las carpetas dinámicas.
     const ruta = normalizarRuta(new URL(request.url).pathname);
     if (!ruta.startsWith(`${RUTA_SEVAC}/`)) return noEncontrado(metodo);
+    if (!configurado) return noDisponible(503, metodo);
 
     let docs;
     let doc = null;
