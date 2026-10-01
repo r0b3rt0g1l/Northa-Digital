@@ -14,7 +14,7 @@
 |---|---|---|
 | **1. Crítico** | Rompe una función: acceso, publicación o herramienta de alta | [P-1](#p-1-el-correo-de-los-admins-no-puede-recibir-el-código-de-zero-trust) Zero Trust · [P-3](#p-3-la-revalidación-bajo-demanda-depende-de-configuración-que-puede-no-estar-desplegada) revalidación · [P-5](#p-5-alta-municipiojs-falla-en-cloudinary-si-no-se-corre-desde-la-raíz) / [P-6](#p-6-alta-municipiojs-se-detiene-por-un-comentario-sahuaripa-del-molde) herramienta de alta |
 | **2. Importante** | El ciudadano ve un error, o se pierde contenido | [P-2](#p-2-hero-y-estadísticas-desaparecen-con-listas-vacías) listas vacías · [P-4](#p-4-hero-de-respaldo-con-texto-de-otro-municipio-el-caso-sahuaripa) respaldo ajeno · [P-8](#p-8-errores-de-contenido-visibles-hoy-en-el-hero-del-cms) textos del hero · [P-9](#p-9-despliegues-duplicados-y-viejos-accesibles-públicamente) duplicados · [P-10](#p-10-formulario-de-contacto-desactivado-en-villa-pesqueira) formulario |
-| **3. Menor** | Cosmético, higiene o seguridad de bajo impacto | [P-7](#p-7-alta-municipiojs-sube-el-favicon-del-molde) favicon · [P-11](#p-11-api-datos-personales-cabeceras-y-paginación) API · [P-12](#p-12-convenciones-inconsistentes-en-la-bd) convenciones · [P-13](#p-13-restos-genéricos-del-molde) restos del molde |
+| **3. Menor** | Cosmético, higiene o seguridad de bajo impacto | [P-7](#p-7-alta-municipiojs-sube-el-favicon-del-molde) favicon · [P-11](#p-11-api-datos-personales-cabeceras-y-paginación) API · [P-12](#p-12-convenciones-inconsistentes-en-la-bd) convenciones · [P-13](#p-13-restos-genéricos-del-molde) restos del molde · [P-14](#p-14-la-historia-y-la-línea-de-tiempo-viven-en-el-código-no-en-el-cms) historia y línea de tiempo en el código |
 
 **Orden de corrección propuesto:**
 1. P-1 y P-3, porque bloquean que Villa Pesqueira quede al 100%.
@@ -129,6 +129,11 @@ Se corrigen desde el panel de cada municipio; no hace falta tocar código.
 - ✔︎ `portadaHistoriaUrl` es `null` en Bacadéhuachi y Sahuaripa.
 - ✔︎ El `orden` del hero empieza en 0 en Huachinera, Rayón, Sahuaripa y Soyopa, y en 1 en los demás.
 - ✔︎ En `municipalConfig`, a Rayón y Soyopa les falta ", Sonora" en `nombreCompleto`, y `fundacion.anio` es `null` en Cucurpe, Mazatán, Rayón y Soyopa.
+
+### P-14. La historia y la línea de tiempo viven en el código, no en el CMS
+- ✔︎ En Carbó, la línea de tiempo es una lista `{ano, titulo, descripcion}` escrita **dentro del componente de Historia**, y el subtítulo y los párrafos están en `municipalConfig.historia`. Ninguna ruta de la API los expone (probé `timeline`, `linea-tiempo`, `hitos`, `cronologia`, `historia/timeline`, entre otras: todas dan 404).
+- **Impacto:** cada cambio de historia, línea de tiempo o enlace de Facebook exige un commit y un despliegue en Vercel; el administrador del municipio no puede hacerlo desde el panel. Además, como la lista de hitos va dentro de un componente, cada municipio tiene su propia copia del componente, lo que dificulta mantener el molde.
+- **Solución a mediano plazo:** mover hitos y enlaces de redes al CMS (campos del municipio o una colección) y que el portal los lea con el resto de los datos. Mientras tanto, queda incluido en el checklist de PRE-ALTA.
 
 ### P-13. Restos genéricos del molde
 - ✔︎ Los 15 portales (14 más Villa Pesqueira) usan como `alt` de la imagen de Historia *"Panorámica de la Sierra Madre Occidental con nubes flotando entre las montañas"*, aunque no corresponde a Carbó, Mazatán ni al valle del Río Sonora. **Solución:** tomar el `alt` del config o del CMS.
