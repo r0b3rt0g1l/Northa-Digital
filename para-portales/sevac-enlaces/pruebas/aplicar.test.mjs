@@ -158,3 +158,29 @@ test("argumentos", () => {
   assert.throws(() => leerArgs(["--nada", "x"]), /desconocida/);
   assert.deepEqual(leerArgs(["--build", "--commit", "--push", "a", "b"]).repos, ["a", "b"]);
 });
+
+test("archivos sueltos sin seguimiento no bloquean, y una falla que no es de build no detiene a los demás", () => {
+  const conSuelto = repoTemporal();
+  const sucio = repoTemporal();
+  const despues = repoTemporal();
+  try {
+    for (const d of [conSuelto, sucio, despues]) {
+      fs.writeFileSync(path.join(d, "package.json"), JSON.stringify({ scripts: { build: "exit 0" } }));
+      fs.mkdirSync(path.join(d, "node_modules"));
+      git(d, "add", "package.json");
+      git(d, "commit", "-qm", "build ok");
+    }
+    fs.writeFileSync(path.join(conSuelto, "cinemagoer.db"), "x");
+    fs.appendFileSync(path.join(sucio, PAGINA), "\n// cambio local\n");
+    const r = correr("--build", conSuelto, sucio, despues);
+    assert.equal(r.status, 1, "hubo una falla (el repo sucio)");
+    assert.match(r.stdout, /archivos sueltos sin seguimiento[^\n]*cinemagoer\.db/);
+    assert.match(r.stdout, /aplicado\s+portal-\w+\n\s+FALLA\s+portal-\w+\n\s+aplicado\s+portal-\w+/, r.stdout);
+    assert.ok(fs.existsSync(path.join(conSuelto, RUTA)));
+    assert.ok(!fs.existsSync(path.join(sucio, RUTA)));
+    assert.ok(fs.existsSync(path.join(despues, RUTA)), "siguió con el repo de después");
+    assert.ok(fs.existsSync(path.join(conSuelto, "cinemagoer.db")), "no toca el archivo suelto");
+  } finally {
+    for (const d of [conSuelto, sucio, despues]) fs.rmSync(d, { recursive: true, force: true });
+  }
+});

@@ -321,6 +321,9 @@ function mostrarDiff(c) {
   }
 }
 
+/** Falla de npm ci o de build: se repetiría igual en los demás repos, así que se detiene ahí. */
+class ErrorDeBuild extends Error {}
+
 function procesar(raizArg, o) {
   const raiz = path.resolve(raizArg.replace(/^~(?=$|\/)/, os.homedir()));
   const nombre = path.basename(raiz);
@@ -330,12 +333,16 @@ function procesar(raizArg, o) {
   console.log(`  repo: ${remoto.ok ? remoto.salida : "(sin remoto origin)"}`);
 
   const rama = git(raiz, ["rev-parse", "--abbrev-ref", "HEAD"]).salida;
-  const estado = git(raiz, ["status", "--porcelain"]);
+  // Solo bloquean los archivos del repo modificados. Los archivos sueltos sin seguimiento (??) no
+  // se tocan ni entran al commit, que agrega únicamente los archivos de este cambio.
+  const estado = git(raiz, ["status", "--porcelain", "--untracked-files=no"]);
   if (!estado.ok) throw new Error(`git status falló: ${estado.salida}`);
   if (!o.dryRun) {
     if (estado.salida) throw new Error(`tiene cambios sin guardar; guárdalos o descártalos primero:\n${estado.salida}`);
     if (rama !== "main") throw new Error(`está en la rama "${rama}"; cámbiate a main (git switch main)`);
   }
+  const sueltos = git(raiz, ["ls-files", "--others", "--exclude-standard"]).salida;
+  if (sueltos) console.log(`  ⚠ archivos sueltos sin seguimiento (no se tocan ni se suben): ${sueltos.split("\n").join(", ")}`);
   if (o.commit) {
     const pull = git(raiz, ["pull", "--ff-only"]);
     if (!pull.ok) throw new Error(`git pull --ff-only falló: ${pull.salida}`);
@@ -363,14 +370,14 @@ function procesar(raizArg, o) {
       const ci = spawnSync("npm", ["ci"], { cwd: raiz, stdio: "inherit" });
       if (ci.status !== 0) {
         deshacer();
-        throw new Error("npm ci falló; dejé el repo como estaba");
+        throw new ErrorDeBuild("npm ci falló; dejé el repo como estaba");
       }
     }
     console.log("  … npm run build");
     const b = spawnSync("npm", ["run", "build"], { cwd: raiz, stdio: "inherit" });
     if (b.status !== 0) {
       deshacer();
-      throw new Error("el build falló; dejé el repo como estaba. Pega la salida de arriba en el chat");
+      throw new ErrorDeBuild("el build falló; dejé el repo como estaba. Pega la salida de arriba en el chat");
     }
     console.log("  ✔ build correcto");
   }
@@ -412,7 +419,7 @@ export function main(argv = process.argv.slice(2)) {
     } catch (e) {
       console.error(`  ✘ ${e.message}`);
       resultados.push([r, "FALLA"]);
-      if (o.build) break; // un build roto se repetiría igual en los demás
+      if (e instanceof ErrorDeBuild) break; // un build roto se repetiría igual en los demás
     }
   }
   console.log("\nResumen:");
