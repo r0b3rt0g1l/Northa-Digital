@@ -1,0 +1,7 @@
+.tree{display:flex;flex-direction:column;align-items:center;width:100%}
+.heads{display:flex;justify-content:center;flex-wrap:wrap;gap:1.5rem}
+.trunk{width:2px;height:32px;background:var(--color-border)}
+.children,.childrenFlat{display:flex;justify-content:center;flex-wrap:wrap;list-style:none;margin:0;padding:0}
+.childrenFlat{gap:1.5rem}
+.child{position:relative;display:flex;justify-content:center;padding:32px 12px 0}
+.childrenFlat .child{padding-top:0}
