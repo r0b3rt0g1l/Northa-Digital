@@ -34,3 +34,17 @@ Corrida del operador: los 14 portales restantes, `aplicado`. Verificación en pr
 | Encabezado, 15 portales × 1024, 1150, 1279, 1280, 1366 y 1920 px | Comparado en la misma página contra el menú anterior (20 px, 14 px, "SEvAC"): **en ningún caso se ve peor**. A 1024 px, el nombre del municipio ya invadía el espacio del menú antes del cambio (ver arriba) |
 | Enlaces de documentos | `verificar-enlaces-sevac.mjs --todos`: **Todo bien**, 173 documentos (Bacanora pasó a 2). Salida: `flota-15-enlaces-tras-renombre.txt` |
 | cms-admin | Aplicado (`985cf93`). Falta que el operador lo confirme a la vista |
+
+
+---
+
+## Paso 2: el nombre en mayúsculas, SEVAC/CUMPLIMIENTO (2 de octubre de 2026)
+
+Aplicado por el operador en los **15 portales y en cms-admin** (commit `bc38df2` en el admin). Verificado en producción:
+
+| Comprobación | Resultado |
+|---|---|
+| Textos, 15 portales × 4 páginas (`/`, `/transparencia`, `/transparencia/sevac`, `/contacto`) | **15/15 OK.** Pestaña "SEVAC/CUMPLIMIENTO · Municipio de …", título grande "SEVAC/" más "CUMPLIMIENTO", descripción nueva y el nombre en las 4 páginas. **0 apariciones** de "SEvAC/Cumplimiento" y ninguna escrita de otra forma |
+| Título en celulares | Se revisó en producción antes de aplicar. A 320 px el nombre en mayúsculas mide 351 px y se salía. Por eso el título grande puede partirse tras la barra. A 375 px o más queda en 1 renglón, y a 320 y 360 px en 2, sin salirse |
+| Encabezado, 15 portales × 6 anchos | En ningún caso se ve peor que antes del cambio |
+| cms-admin | Aplicado. Falta que el operador lo confirme a la vista |
