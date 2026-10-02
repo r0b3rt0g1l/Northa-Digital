@@ -54,3 +54,33 @@ node aplicar-nombre-sevac.mjs --build --commit --push <repos...>
   - Pestaña "SEvAC/Cumplimiento", subtítulo "Obligaciones normativas" y descripción nueva.
   - 0 apariciones de "armonización" en el HTML.
   - Los 18 documentos de Bacadéhuachi siguen con su enlace propio.
+
+---
+
+## Paso 2: el nombre todo en mayúsculas (2 de octubre de 2026)
+
+**Pedido del operador:** "SEvAC/Cumplimiento debe ir todo en mayúsculas". El nombre pasa a **SEVAC/CUMPLIMIENTO** en la web (título, pestaña, menú, pie, acceso del inicio, tarjeta del hub) y en el admin. La dirección no cambia. El menú ya se veía en mayúsculas por el estilo.
+
+`mayusculas-sevac.mjs` parte del nombre que puso `aplicar-nombre-sevac.mjs`. Reemplaza el nombre en **todos** los archivos de código del repo, para que no quede ninguna aparición atrás. Si el nombre aparece escrito de otra forma, o falta en algún archivo esperado, no toca nada y lo dice.
+
+### Ajuste solo en los portales: el título grande puede partirse tras la barra
+
+Medido en producción, "SEVAC/CUMPLIMIENTO" no tiene espacios y a 320 px de ancho mide 351 px, así que se sale de la pantalla. El título del apartado ahora sale de `sevac.titulo.replace("/", "/​")`: el carácter invisible U+200B tras la barra permite partirlo en dos renglones. Solo afecta al título grande. La pestaña, las migas y las etiquetas siguen con el texto limpio.
+
+Revisado en producción, con la fuente real del sitio:
+
+| Ancho | Título |
+|---|---|
+| 375, 390, 414, 768 y 1366 px | 1 renglón |
+| 320 y 360 px | 2 renglones: "SEVAC/" y "CUMPLIMIENTO". No se sale de la pantalla |
+
+En el admin, el menú lateral cabe: el texto ocupa 158 px de 178 disponibles, medido con una fuente más ancha que la real.
+
+### Uso
+
+```
+node mayusculas-sevac.mjs --dry-run ~/Developer/Carbo ~/Developer/cms-admin
+node mayusculas-sevac.mjs --build --commit --push ~/Developer/Carbo ~/Developer/cms-admin
+```
+
+Trabaja todo o nada por repo, deja el repo como estaba si falla el build y hace un commit solo con los archivos del cambio. Las pruebas (`npm test`, 18 en total con las del paso 1) parten del repo en el estado real de la flota: molde, más el paso 1 aplicado.
