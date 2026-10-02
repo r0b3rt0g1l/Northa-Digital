@@ -48,3 +48,4 @@ Aplicado por el operador en los **15 portales y en cms-admin** (commit `bc38df2`
 | Título en celulares | Se revisó en producción antes de aplicar. A 320 px el nombre en mayúsculas mide 351 px y se salía. Por eso el título grande puede partirse tras la barra. A 375 px o más queda en 1 renglón, y a 320 y 360 px en 2, sin salirse |
 | Encabezado, 15 portales × 6 anchos | En ningún caso se ve peor que antes del cambio |
 | cms-admin | Aplicado. Falta que el operador lo confirme a la vista |
+| Enlaces de documentos, 15 portales | `verificar-enlaces-sevac.mjs`, municipio por municipio: **Todo bien en los 15**, **174 documentos** sin fallas. Bacanora tiene 2 documentos y Tepache 22; Villa Pesqueira todavía no tiene |
