@@ -65,7 +65,9 @@ En el proyecto del portal (repo `NorthaDigital/Villapesqueira`) → **Settings �
 
 1. Agrega `villapesqueiratransparencia.com.mx`, que será el dominio principal.
 2. Agrega `www.villapesqueiratransparencia.com.mx` con **Redirect to** `villapesqueiratransparencia.com.mx` (**308**).
-3. **Al final, cuando el dominio ya tenga candado (HTTPS),** edita `villapesqueira.vercel.app` y ponle **Redirect to** `villapesqueiratransparencia.com.mx` (**307**), como en Baviácora.
+3. **Al final, cuando el dominio ya tenga candado (HTTPS) y ya hiciste el paso 7,** edita `villapesqueira.vercel.app` y ponle **Redirect to** `villapesqueiratransparencia.com.mx` (**307**), como en Baviácora.
+
+> ⚠️ **No borres `villapesqueira.vercel.app`.** Mientras `Municipio.dominio` apunte ahí, el backend avisa los cambios del panel a esa dirección. Si desaparece, lo que se carga en el panel deja de verse en la web y el enlace "Ver sitio público" del admin da error. Le pasó a Villa Pesqueira el 2 de octubre de 2026 (ver `_reportes/dominio-villapesqueira/ESTADO.md`).
 
 Si Vercel muestra "Invalid Configuration" y te propone otros valores (en 2025 Vercel empezó a recomendar `216.198.79.1` y CNAME del tipo `xxxx.vercel-dns-0xx.com`), **usa los que te muestre Vercel**. Los de la flota (`76.76.21.21` y `cname.vercel-dns.com`) siguen funcionando.
 
@@ -94,7 +96,13 @@ Pega la salida y te doy el cambio exacto. Lo normal es que sea una sola línea e
 
 ### 7. CMS: registrar el dominio
 
-- **`Municipio.dominio`** = `villapesqueiratransparencia.com.mx`, sin `https://` ni `www`, como en los demás. Tu checklist dice que esto se hace con `alta-municipio.js` ("conectar dominio"). Pégame la salida de `node scripts/herramienta-alta/alta-municipio.js --help` y te doy el comando exacto.
+- **`Municipio.dominio`** = `villapesqueiratransparencia.com.mx`, sin `https://` ni `www`, como en los demás. Se cambia con `fijar-dominio.mjs` (prueba en seco primero; `--forzar` porque ya vale `villapesqueira.vercel.app`):
+
+  ```bash
+  cd ~/Developer/cmsmunicipal
+  node --env-file=.env ~/Developer/_herramientas/fijar-dominio.mjs --slug villapesqueira --dominio villapesqueiratransparencia.com.mx --forzar
+  node --env-file=.env ~/Developer/_herramientas/fijar-dominio.mjs --slug villapesqueira --dominio villapesqueiratransparencia.com.mx --forzar --aplicar
+  ```
 - **`scripts/flota/flota.config.json`:** la entrada de Villa Pesqueira se agregó "sin dominio propio todavía". Hay que ponerle el dominio igual que las demás.
 - **northa-landing:** agregarlo solo con tu OK.
 
@@ -116,4 +124,7 @@ Además reviso: HTTPS con certificado válido; que `www` redirija con 308 y `vil
 | Vercel dice "Invalid Configuration" durante horas | Los nameservers en Akky no son los de Cloudflare, o todavía no propagan | Revisa el paso 3 con `dig +short NS …` |
 | El sitio responde con un certificado de Cloudflare o hay redirecciones infinitas | Los registros quedaron con la nube naranja (proxy) | Ponlos en **DNS only** (gris) |
 | `www` no carga | Falta el CNAME de `www` en Cloudflare o falta agregar `www` en Vercel | Pasos 2 y 4 |
+| `www` da error de certificado ("no coincide con el nombre") | El DNS de `www` ya llega a Vercel, pero `www` no está agregado en el proyecto: Vercel entrega el certificado de la raíz | Paso 4.2 |
+| `DNS_PROBE_FINISHED_NXDOMAIN` en tu navegador, pero desde fuera el dominio ya abre | Tu Mac o tu red guardaron el "no existe" de cuando aún no propagaba | `sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder` y `chrome://net-internals/#dns` → *Clear host cache*; o prueba con el celular sin WiFi |
+| `<slug>.vercel.app` da `DEPLOYMENT_NOT_FOUND` y los cambios del panel tardan ≈1 h | Se quitó el dominio provisional de Vercel antes de cambiar `Municipio.dominio` | Paso 7 (`fijar-dominio.mjs --forzar`) y volver a agregar `<slug>.vercel.app` con redirección 307 |
 | El buscador muestra `villapesqueira.vercel.app` | `siteUrl` sigue con el dominio provisional | Paso 6 |
