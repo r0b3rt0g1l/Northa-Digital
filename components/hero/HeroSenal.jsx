@@ -6,6 +6,7 @@ import { useReducedMotion } from "@/hooks/useReducedMotion";
 /**
  * La señal: un punto de luz con destello de ocho puntas (la estrella polar
  * de Northa), un halo que respira, un pulso que se expande y tres anillos.
+ * Es el polo del cielo de fondo: todas las estrellas giran a su alrededor.
  * Parallax ligero por capas con el puntero en escritorio. Las animaciones se
  * pausan cuando el hero sale de pantalla. Decorativa.
  */

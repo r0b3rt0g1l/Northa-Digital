@@ -20,7 +20,7 @@ export function Cierre() {
         aria-hidden="true"
         className="pointer-events-none absolute bottom-[-35%] left-1/2 h-[720px] w-[1200px] -translate-x-1/2 bg-[radial-gradient(closest-side,rgba(79,140,255,0.12),rgba(79,140,255,0)_70%)]"
       />
-      <Reveal className="relative mx-auto flex w-full max-w-[860px] flex-col items-center gap-6">
+      <Reveal data-cielo-claro className="relative mx-auto flex w-full max-w-[860px] flex-col items-center gap-6">
         <StarIcon className="h-9 w-9 [filter:drop-shadow(0_0_18px_rgba(127,211,255,0.55))]" />
         <h2 id="cierre-title" className="text-[length:var(--text-cierre)] leading-[1.02] tracking-[-0.035em]">
           Tu siguiente proyecto puede empezar aquí.

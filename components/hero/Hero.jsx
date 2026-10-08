@@ -22,7 +22,7 @@ export function Hero() {
 
       <HeroSenal />
 
-      <div className="relative mt-6 flex w-full max-w-[940px] flex-col items-center gap-6 sm:mt-8">
+      <div data-cielo-claro className="relative mt-6 flex w-full max-w-[940px] flex-col items-center gap-6 sm:mt-8">
         <p className="hero-in eyebrow m-0">{hero.etiqueta}</p>
         <h1
           id="hero-title"
