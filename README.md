@@ -16,18 +16,27 @@ cada bloque responde una sola pregunta.
 
 - **Fondo:** grafito profundo con un cielo realista en canvas. Las estrellas tienen
   brillo y color de cielo real, hay una franja muy tenue de Vía Láctea con polvo, el
-  centelleo es irregular y las más brillantes llevan destello de difracción. Brilla
-  en el hero y el cierre y baja al 40 % detrás del contenido. Solo se anima cuando el
-  hero o el cierre están en pantalla.
+  centelleo es irregular y las más brillantes llevan destello de difracción. Todo el
+  cielo gira en bloque alrededor de la señal del hero, la estrella polar, una vuelta
+  cada 40 minutos. Brilla en el hero y el cierre y baja al 40 % detrás del contenido.
+  Solo se anima cuando el hero o el cierre están en pantalla.
 - **Señal:** el hero gira alrededor de un punto de luz con destello de ocho puntas,
   la estrella polar de la marca. Las puntas se afinan hacia el extremo y centellean
   cada una a su ritmo.
 - **Vidrio:** solo en navbar, menú, panel de contacto, tarjeta de sistemas y
   asistente. El resto son superficies mate.
+- **Servicios:** una barra a todo el ancho con los nombres en grande que corre sin fin,
+  se acelera un poco con el scroll y tiene botón de pausa. Las tarjetas se inclinan
+  hacia el puntero y la de sistemas lleva un haz de luz que recorre su borde.
 - **Tipografía:** Sora para títulos, Manrope para texto y JetBrains Mono para
   etiquetas cortas.
-- **Movimiento:** revelados suaves, cursor con halo e imán en escritorio. Todo
-  respeta `prefers-reduced-motion` y funciona sin JavaScript.
+- **Movimiento:** revelados suaves, títulos que entran palabra por palabra y la
+  captura del portafolio que se acerca al hacer scroll.
+- **Puntero:** en escritorio, un puntero adaptable al estilo de iPadOS. Es un círculo
+  translúcido que se vuelve el resaltado del botón o enlace que toca y lo mueve unos
+  píxeles. Sobre el texto se vuelve una barra de escritura y en los campos vuelve el
+  cursor del sistema.
+- Todo respeta `prefers-reduced-motion` y funciona sin JavaScript.
 
 Los valores viven en `app/globals.css` (tokens en `@theme`) y en `lib/fonts.js`.
 

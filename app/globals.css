@@ -37,6 +37,13 @@
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Ángulo animable del haz de luz del borde. */
+@property --haz {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
 @layer base {
   *,
   *::before,
@@ -659,39 +666,195 @@
     }
   }
 
-  /* ---------- Cursor (solo puntero fino) ----------
-     Tamaño fijo y escala: solo trabaja el compositor. */
+  /* ---------- Puntero adaptable (solo ratón) ----------
+     Como en iPadOS: un círculo translúcido que se vuelve el resaltado del
+     botón que toca, o una barra sobre el texto. Tamaño y radio los escribe
+     components/cursor en cada cuadro mientras cambia. */
   .cursor-halo {
     position: fixed;
     left: 0;
     top: 0;
     z-index: 90;
-    width: 48px;
-    height: 48px;
-    margin: -24px 0 0 -24px;
-    border-radius: 999px;
-    border: 1.5px solid rgba(242, 244, 247, 0.42);
-    background: rgba(242, 244, 247, 0.035);
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
     pointer-events: none;
     opacity: 0;
-    scale: 0.58;
+    background: rgba(242, 244, 247, 0.24);
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22);
     transition:
-      scale 0.3s var(--ease-out),
-      opacity 0.3s ease,
-      border-color 0.3s ease,
-      background-color 0.3s ease;
-    will-change: translate;
+      opacity 0.25s ease,
+      background-color 0.3s ease,
+      box-shadow 0.3s ease,
+      scale 0.25s var(--ease-out);
+    will-change: translate, width, height;
   }
   .cursor-halo.is-visible {
     opacity: 1;
   }
-  .cursor-halo.is-active {
-    scale: 1;
-    border-color: rgba(79, 140, 255, 0.55);
-    background: rgba(79, 140, 255, 0.07);
+  .cursor-halo[data-modo="resalte"] {
+    background: rgba(242, 244, 247, 0.09);
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14);
+  }
+  .cursor-halo[data-modo="texto"] {
+    background: rgba(242, 244, 247, 0.72);
+    box-shadow: none;
+  }
+  .cursor-halo.is-visible[data-modo="elevar"],
+  .cursor-halo.is-visible[data-modo="oculto"] {
+    opacity: 0;
   }
   .cursor-halo.is-pressed {
-    scale: 0.4;
+    scale: 0.9;
+  }
+
+  /* ---------- Títulos palabra por palabra ----------
+     Cada palabra sube desde una máscara cuando su Reveal entra en pantalla. */
+  .palabra {
+    display: inline-block;
+    overflow: hidden;
+    vertical-align: top;
+    padding: 0.08em 0.02em 0.12em;
+    margin: -0.08em -0.02em -0.12em;
+  }
+  .palabra > span {
+    display: inline-block;
+  }
+  .reveal-armed .palabra > span {
+    transform: translateY(108%);
+  }
+  .reveal-armed.is-in .palabra > span {
+    transform: none;
+    transition: transform 0.9s var(--ease-out);
+    transition-delay: calc(var(--d, 0ms) + 90ms + var(--i, 0) * 60ms);
+  }
+
+  /* ---------- La barra de servicios ----------
+     Una franja recta a todo el ancho con los nombres en grande, que corre
+     sin fin y se desvanece en los bordes. Con botón de pausa. */
+  .banda {
+    position: relative;
+    overflow: hidden;
+    border-block: 1px solid var(--color-line);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+  .banda-pista {
+    display: flex;
+    width: max-content;
+    animation: banda 52s linear infinite;
+  }
+  .banda.is-detenida .banda-pista {
+    animation-play-state: paused;
+  }
+  .banda-secuencia {
+    display: flex;
+    flex-shrink: 0;
+  }
+  .banda-item {
+    display: inline-flex;
+    align-items: center;
+    gap: clamp(1.5rem, 3vw, 3.25rem);
+    padding: clamp(1.75rem, 3.4vw, 3rem) clamp(1.5rem, 3vw, 3.25rem) clamp(1.9rem, 3.6vw, 3.2rem) 0;
+    white-space: nowrap;
+  }
+  .banda-texto {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(2.6rem, 7vw, 7.25rem);
+    line-height: 1;
+    letter-spacing: -0.045em;
+    background: linear-gradient(180deg, #ffffff 25%, #9aa4b2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .banda-estrella {
+    width: clamp(1.1rem, 2vw, 1.9rem);
+    height: clamp(1.1rem, 2vw, 1.9rem);
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 12px rgba(127, 211, 255, 0.55));
+  }
+  .banda-control {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    color: var(--color-text-2);
+    border: 1px solid var(--color-line-strong);
+    background: rgba(255, 255, 255, 0.05);
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
+  }
+  .banda-control:hover {
+    color: var(--color-text);
+    background: rgba(255, 255, 255, 0.1);
+  }
+  @keyframes banda {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  /* ---------- Haz de luz en el borde (tarjeta de sistemas) ---------- */
+  .haz {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    padding: 1px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: conic-gradient(
+      from var(--haz),
+      transparent 0deg,
+      transparent 280deg,
+      rgba(79, 140, 255, 0.25) 316deg,
+      rgba(127, 211, 255, 0.8) 344deg,
+      rgba(255, 255, 255, 0.9) 352deg,
+      transparent 360deg
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: haz 9s linear infinite;
+  }
+  @keyframes haz {
+    to {
+      --haz: 360deg;
+    }
+  }
+
+  /* ---------- Inclinación hacia el puntero ([data-tilt]) ---------- */
+  [data-tilt] {
+    transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  }
+  .card-hover[data-tilt]:hover,
+  .glass-hover[data-tilt]:hover {
+    transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg))
+      translateY(-3px);
+  }
+
+  /* ---------- Captura del portafolio: se acerca al entrar ---------- */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .portada-scroll {
+        animation: portada linear both;
+        animation-timeline: view();
+        animation-range: entry 0% cover 45%;
+      }
+    }
+  }
+  @keyframes portada {
+    from {
+      transform: scale(1.14);
+    }
+    to {
+      transform: scale(1);
+    }
   }
 }
 
@@ -706,8 +869,12 @@
   }
   .starfield,
   .cursor-halo,
+  .banda-control,
   [data-asistente] {
     display: none !important;
+  }
+  .palabra > span {
+    transform: none !important;
   }
 }
 
@@ -740,9 +907,43 @@
   .glass-hover,
   .glass-hover:hover,
   .card,
-  .card-hover:hover {
+  .card-hover:hover,
+  [data-tilt],
+  [data-tilt]:hover {
     transition: none;
     transform: none;
+  }
+  .reveal-armed .palabra > span {
+    transform: none;
+    transition: none;
+  }
+  .banda-pista,
+  .haz {
+    animation: none;
+  }
+  .haz,
+  .banda-control,
+  .cursor-halo {
+    display: none;
+  }
+}
+
+/* Cursor propio activo (lo añade components/cursor): se oculta el del
+   sistema, salvo en campos de escritura. Fuera de capas para ganar a las
+   utilidades de cursor. */
+html.cursor-propio,
+html.cursor-propio * {
+  cursor: none;
+}
+html.cursor-propio :is(input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]), textarea, [contenteditable="true"]) {
+  cursor: text;
+}
+/* Con colores forzados (alto contraste del sistema) manda el cursor propio
+   del usuario. */
+@media (forced-colors: active) {
+  html.cursor-propio,
+  html.cursor-propio * {
+    cursor: auto;
   }
   .cursor-halo {
     display: none;

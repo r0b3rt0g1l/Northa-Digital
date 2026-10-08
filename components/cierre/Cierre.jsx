@@ -2,6 +2,7 @@ import { Reveal } from "@/components/ui/Reveal";
 import { Button } from "@/components/ui/Button";
 import { BotonAsistente } from "@/components/ui/BotonAsistente";
 import { StarIcon } from "@/components/ui/StarIcon";
+import { Palabras } from "@/components/ui/Palabras";
 import { site } from "@/lib/site";
 import { ctaPrincipal } from "@/lib/content/nav";
 
@@ -23,7 +24,7 @@ export function Cierre() {
       <Reveal data-cielo-claro className="relative mx-auto flex w-full max-w-[860px] flex-col items-center gap-6">
         <StarIcon className="h-9 w-9 [filter:drop-shadow(0_0_18px_rgba(127,211,255,0.55))]" />
         <h2 id="cierre-title" className="text-[length:var(--text-cierre)] leading-[1.02] tracking-[-0.035em]">
-          Tu siguiente proyecto puede empezar aquí.
+          <Palabras>Tu siguiente proyecto puede empezar aquí.</Palabras>
         </h2>
         <p className="m-0 max-w-[50ch] text-[length:var(--text-lead)] text-text-2">
           Cuéntanos qué quieres construir, mejorar o comunicar. Te diremos con claridad cómo

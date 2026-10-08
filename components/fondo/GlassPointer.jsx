@@ -7,8 +7,10 @@ const SUPERFICIES = ".glass, .glass-strong, .card";
 
 /**
  * Hace que el reflejo del vidrio y el brillo de las tarjetas mate sigan al
- * puntero: escribe --mx/--my en la superficie bajo el cursor. Un solo
- * listener delegado, un cuadro por evento como máximo, solo ratón.
+ * puntero: escribe --mx/--my en la superficie bajo el cursor. Si la
+ * superficie lleva [data-tilt="grados"], también escribe --rx/--ry para que
+ * se incline hacia el puntero. Un solo listener delegado, un cuadro por
+ * evento como máximo, solo ratón.
  */
 export function GlassPointer() {
   const reduced = useReducedMotion();
@@ -28,13 +30,22 @@ export function GlassPointer() {
       pendiente = null;
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
-      el.style.setProperty("--mx", `${(((x - r.left) / r.width) * 100).toFixed(1)}%`);
-      el.style.setProperty("--my", `${(((y - r.top) / r.height) * 100).toFixed(1)}%`);
+      const px = (x - r.left) / r.width;
+      const py = (y - r.top) / r.height;
+      el.style.setProperty("--mx", `${(px * 100).toFixed(1)}%`);
+      el.style.setProperty("--my", `${(py * 100).toFixed(1)}%`);
+      const tilt = Number(el.dataset.tilt);
+      if (tilt) {
+        el.style.setProperty("--ry", `${((px - 0.5) * 2 * tilt).toFixed(2)}deg`);
+        el.style.setProperty("--rx", `${(-(py - 0.5) * 2 * tilt).toFixed(2)}deg`);
+      }
     };
 
     const limpiar = (el) => {
       el?.style.removeProperty("--mx");
       el?.style.removeProperty("--my");
+      el?.style.removeProperty("--rx");
+      el?.style.removeProperty("--ry");
     };
 
     const onMove = (e) => {

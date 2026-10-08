@@ -1,9 +1,11 @@
 import { cn } from "@/lib/cn";
 import { Reveal } from "./Reveal";
+import { Palabras } from "./Palabras";
 
 /**
  * Encabezado de sección: etiqueta y título a la izquierda, una línea de
  * contexto a la derecha; en móvil se apila. `titleId` = `labelledBy`.
+ * El título entra palabra por palabra.
  */
 export function SectionHeader({ eyebrow, title, titleId, description, className }) {
   return (
@@ -11,7 +13,7 @@ export function SectionHeader({ eyebrow, title, titleId, description, className 
       <div className="flex flex-col gap-4">
         {eyebrow ? <p className="eyebrow m-0">{eyebrow}</p> : null}
         <h2 id={titleId} className="text-[length:var(--text-h2)]">
-          {title}
+          <Palabras>{title}</Palabras>
         </h2>
       </div>
       {description ? (

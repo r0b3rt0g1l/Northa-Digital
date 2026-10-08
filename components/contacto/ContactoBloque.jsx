@@ -1,4 +1,5 @@
 import { Reveal } from "@/components/ui/Reveal";
+import { Palabras } from "@/components/ui/Palabras";
 import { ContactoRapido } from "./ContactoRapido";
 import { contacto } from "@/lib/content/contacto";
 import { WEB3FORMS_KEY } from "@/lib/site";
@@ -23,7 +24,7 @@ export function ContactoBloque() {
           <div className="flex max-w-[780px] flex-col gap-4">
             <p className="eyebrow m-0">Contacto</p>
             <h2 id="contacto-title" className="text-[length:var(--text-h2)]">
-              {contacto.titulo}
+              <Palabras>{contacto.titulo}</Palabras>
             </h2>
             <p className="m-0 text-[length:var(--text-lead)] text-text-2">{contacto.texto}</p>
           </div>

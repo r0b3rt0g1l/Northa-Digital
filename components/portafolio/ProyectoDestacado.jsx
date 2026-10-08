@@ -27,15 +27,18 @@ export function ProyectoDestacado({ proyecto }) {
               <span className="h-2.5 w-2.5 rounded-full bg-white/[0.16]" />
               <span className="ml-3 truncate font-mono text-xs text-faint">{dominio}</span>
             </span>
-            <Image
-              src={imagen.src}
-              alt={imagen.alt}
-              width={imagen.width}
-              height={imagen.height}
-              sizes="(min-width: 1240px) 1176px, 100vw"
-              loading="lazy"
-              className="aspect-[16/11] h-auto w-full rounded-[16px] object-cover object-left-top transition-transform duration-700 ease-out group-hover:scale-[1.01] motion-reduce:transition-none motion-reduce:group-hover:scale-100 sm:aspect-auto"
-            />
+            <span className="block overflow-hidden rounded-[16px]">
+              <Image
+                src={imagen.src}
+                alt={imagen.alt}
+                width={imagen.width}
+                height={imagen.height}
+                sizes="(min-width: 1240px) 1176px, 100vw"
+                loading="lazy"
+                style={{ "--proporcion": `${imagen.width} / ${imagen.height}` }}
+                className="portada-scroll aspect-[16/11] h-auto w-full object-cover object-left-top sm:aspect-[var(--proporcion)]"
+              />
+            </span>
             <span className="sr-only">Visitar el portal de {imagen.enlace.nombre} (se abre en una pestaña nueva)</span>
           </a>
           {imagen.credito ? (
