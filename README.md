@@ -14,11 +14,14 @@ cada bloque responde una sola pregunta.
 
 ## Concepto visual: "Signal in the dark"
 
-- **Fondo:** grafito profundo con un cielo de tres capas en canvas. Brilla en el
-  hero y el cierre y baja al 40 % detrás del contenido. Solo se anima cuando el hero
-  o el cierre están en pantalla.
+- **Fondo:** grafito profundo con un cielo realista en canvas. Las estrellas tienen
+  brillo y color de cielo real, hay una franja muy tenue de Vía Láctea con polvo, el
+  centelleo es irregular y las más brillantes llevan destello de difracción. Brilla
+  en el hero y el cierre y baja al 40 % detrás del contenido. Solo se anima cuando el
+  hero o el cierre están en pantalla.
 - **Señal:** el hero gira alrededor de un punto de luz con destello de ocho puntas,
-  la estrella polar de la marca.
+  la estrella polar de la marca. Las puntas se afinan hacia el extremo y centellean
+  cada una a su ritmo.
 - **Vidrio:** solo en navbar, menú, panel de contacto, tarjeta de sistemas y
   asistente. El resto son superficies mate.
 - **Tipografía:** Sora para títulos, Manrope para texto y JetBrains Mono para

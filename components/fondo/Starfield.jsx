@@ -4,39 +4,122 @@ import { useEffect, useRef } from "react";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 /**
- * Cielo de fondo en un canvas fijo, con tres capas de profundidad:
- *  - lejana: muchas estrellas diminutas; casi todas se pintan UNA vez en un
- *    canvas fuera de pantalla y solo un tercio parpadea;
- *  - media: pocas estrellas algo más brillantes, con halo y parpadeo lento;
- *  - cercana: unas cuantas motas desenfocadas que derivan muy despacio.
+ * Cielo de fondo en un canvas fijo, pensado para parecer un cielo real:
+ *  - brillo con ley de potencia: muchas estrellas apenas visibles y pocas
+ *    brillantes;
+ *  - temperatura de color: azuladas, blancas, cálidas y alguna anaranjada.
+ *    El núcleo se satura a blanco y el color vive en el halo, como en una
+ *    foto de larga exposición;
+ *  - una franja muy tenue de Vía Láctea en diagonal, con más densidad de
+ *    estrellas y grietas de polvo;
+ *  - centelleo irregular (suma de ondas de periodos distintos), nunca un
+ *    parpadeo regular;
+ *  - unas pocas estrellas brillantes con destello de difracción de cuatro
+ *    puntas que respira con su centelleo y deriva un poco más rápido.
  *
- * Intensidad por sección: 100 % en el hero y el cierre, 40 % detrás del
- * contenido. Solo se anima mientras el hero o el cierre están en pantalla;
- * en el resto queda un cuadro fijo. 30 cuadros por segundo con acumulador,
- * DPR máximo 1,5, pausa con la pestaña oculta, y un cuadro estático con
- * prefers-reduced-motion o ahorro de datos. Si el equipo va justo, reduce
- * densidad y cuadros por segundo a la mitad.
+ * Lo fijo (franja, polvo y casi todas las estrellas) se pinta UNA vez en un
+ * canvas fuera de pantalla. Intensidad por sección: 100 % en el hero y el
+ * cierre, 40 % detrás del contenido. Solo se anima mientras el hero o el
+ * cierre están en pantalla; en el resto queda un cuadro fijo. 30 cuadros por
+ * segundo, DPR máximo 1,5, pausa con la pestaña oculta y un cuadro estático
+ * con prefers-reduced-motion o ahorro de datos. Si el equipo va justo,
+ * reduce densidad y cuadros por segundo.
  */
 
 const ALTA = 1;
 const BAJA = 0.4;
 const SECCIONES_ALTAS = ["inicio", "empezar"];
+const TAU = Math.PI * 2;
+
+// Temperaturas de color con su peso aproximado en un cielo a simple vista.
+const COLORES = [
+  [0.24, "196,214,255"], // azulada
+  [0.46, "238,242,255"], // blanca
+  [0.2, "255,246,230"], // cálida
+  [0.08, "255,228,196"], // amarillenta
+  [0.02, "255,204,170"], // anaranjada
+];
+// Las brillantes tiran a azuladas y blancas, con alguna cálida.
+const COLORES_BRILLANTES = [0, 0, 1, 1, 1, 2, 3];
 
 const azar = (min, max) => min + Math.random() * (max - min);
 
-function sprite(radio, color) {
-  const lado = Math.ceil(radio * 2);
+function colorAzar() {
+  let r = Math.random();
+  for (let i = 0; i < COLORES.length; i++) {
+    r -= COLORES[i][0];
+    if (r <= 0) return i;
+  }
+  return 1;
+}
+
+// Normal estándar (Box-Muller) para repartir estrellas en la franja.
+function gauss() {
+  const u = 1 - Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * Math.random());
+}
+
+/** Punto de luz: núcleo blanco y caída casi gaussiana teñida de color. */
+function spritePunto(color) {
+  const lado = 32;
+  const r = lado / 2;
   const c = document.createElement("canvas");
   c.width = lado;
   c.height = lado;
   const g = c.getContext("2d");
-  const grad = g.createRadialGradient(radio, radio, 0, radio, radio, radio);
-  grad.addColorStop(0, `rgba(${color},1)`);
-  grad.addColorStop(0.18, `rgba(${color},0.55)`);
+  const grad = g.createRadialGradient(r, r, 0, r, r, r);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.08, `rgba(${color},0.95)`);
+  grad.addColorStop(0.2, `rgba(${color},0.5)`);
+  grad.addColorStop(0.38, `rgba(${color},0.16)`);
+  grad.addColorStop(0.62, `rgba(${color},0.04)`);
   grad.addColorStop(1, `rgba(${color},0)`);
   g.fillStyle = grad;
   g.fillRect(0, 0, lado, lado);
   return c;
+}
+
+/**
+ * Destello de difracción: dos puntas finas en cruz. Cada una es un degradado
+ * radial aplastado, así se afina y se apaga hacia el extremo como en una
+ * foto real, sin bordes duros.
+ */
+function spritePuntas(color) {
+  const lado = 128;
+  const r = lado / 2;
+  const c = document.createElement("canvas");
+  c.width = lado;
+  c.height = lado;
+  const g = c.getContext("2d");
+  const punta = (sx, sy) => {
+    g.save();
+    g.translate(r, r);
+    g.scale(sx, sy);
+    const grad = g.createRadialGradient(0, 0, 0, 0, 0, r);
+    grad.addColorStop(0, "rgba(255,255,255,0.95)");
+    grad.addColorStop(0.1, `rgba(${color},0.6)`);
+    grad.addColorStop(0.38, `rgba(${color},0.18)`);
+    grad.addColorStop(1, `rgba(${color},0)`);
+    g.fillStyle = grad;
+    g.fillRect(-r, -r, lado, lado);
+    g.restore();
+  };
+  punta(1, 0.024);
+  punta(0.024, 1);
+  return c;
+}
+
+/** Parámetros de centelleo: tres ondas de periodos distintos. */
+function centelleo(min, max) {
+  return {
+    f1: TAU / azar(3000, 7000),
+    f2: TAU / azar(1400, 2800),
+    f3: TAU / azar(480, 900),
+    p1: azar(0, TAU),
+    p2: azar(0, TAU),
+    p3: azar(0, TAU),
+    amp: azar(min, max),
+  };
 }
 
 export function Starfield() {
@@ -57,10 +140,10 @@ export function Starfield() {
     let width = 0;
     let height = 0;
     let dpr = 1;
-    let lejana = null; // canvas con la capa lejana estática
+    let lejana = null; // canvas con la franja y las estrellas fijas
     let titilan = [];
     let medias = [];
-    let cercanas = [];
+    let brillantes = [];
     let intensidad = ALTA;
     let objetivo = ALTA;
     let rafId = null;
@@ -68,52 +151,148 @@ export function Starfield() {
     let previo = 0;
     const tiempos = [];
 
-    const spriteMedia = sprite(6, "235,242,255");
-    const spriteCercana = sprite(14, "127,211,255");
+    const puntos = COLORES.map(([, c]) => spritePunto(c));
+    const puntas = COLORES.map(([, c]) => spritePuntas(c));
+
+    // 1 en reposo; baja hasta 1 - amp sin repetirse. Sin animación, el promedio.
+    const brillo = (s, t) =>
+      animar
+        ? 1 -
+          s.amp *
+            (0.5 +
+              0.5 *
+                (0.55 * Math.sin(t * s.f1 + s.p1) +
+                  0.3 * Math.sin(t * s.f2 + s.p2) +
+                  0.15 * Math.sin(t * s.f3 + s.p3)))
+        : 1 - s.amp * 0.5;
 
     const poblar = () => {
       const area = (width * height) / 1e6;
       const m = movil();
-      const nLejanas = Math.round((m ? 90 : Math.min(320, Math.max(120, area * 170))) * factor);
-      const nMedias = Math.round((m ? 12 : Math.min(40, Math.max(18, area * 23))) * factor);
-      const nCercanas = m ? 4 : 8;
+      const nFijas = Math.round((m ? 240 : Math.min(720, Math.max(320, area * 320))) * factor);
+      const nTitilan = Math.round((m ? 46 : Math.min(130, Math.max(70, area * 62))) * factor);
+      const nMedias = Math.round((m ? 12 : Math.min(36, Math.max(18, area * 20))) * factor);
+      const nBrillantes = m ? 3 : 6;
 
-      // Capa lejana: dos tercios fijos en un canvas aparte; un tercio titila.
+      // Franja de Vía Láctea: diagonal suave que sube hacia la derecha.
+      const ang = -Math.atan2(height, width) * 0.7;
+      const dx = Math.cos(ang);
+      const dy = Math.sin(ang);
+      const nx = -dy;
+      const ny = dx;
+      const cx = width * 0.58;
+      const cy = height * 0.48;
+      const sigma = Math.min(width, height) * (m ? 0.22 : 0.17);
+      const largo = Math.hypot(width, height) * 1.1;
+
+      const enFranja = () => {
+        for (let i = 0; i < 6; i++) {
+          const t = azar(-largo / 2, largo / 2);
+          const o = gauss() * sigma;
+          const x = cx + dx * t + nx * o;
+          const y = cy + dy * t + ny * o;
+          if (x >= 0 && x <= width && y >= 0 && y <= height) return [x, y];
+        }
+        return [azar(0, width), azar(0, height)];
+      };
+      const posicion = (pFranja) =>
+        Math.random() < pFranja ? enFranja() : [azar(0, width), azar(0, height)];
+      // Ley de potencia: la mayoría tenues, unas pocas brillantes.
+      const estrella = (pFranja, bMin = 0) => {
+        const [x, y] = posicion(pFranja);
+        const b = bMin + (1 - bMin) * Math.pow(Math.random(), 2.6);
+        return { x, y, c: colorAzar(), a: 0.12 + 0.8 * b, tam: 2 + 4.4 * b };
+      };
+
       lejana = document.createElement("canvas");
       lejana.width = Math.floor(width * dpr);
       lejana.height = Math.floor(height * dpr);
       const lg = lejana.getContext("2d");
       lg.setTransform(dpr, 0, 0, dpr, 0, 0);
-      lg.fillStyle = "#eef2f8";
-      titilan = [];
-      for (let i = 0; i < nLejanas; i++) {
-        const s = { x: azar(0, width), y: azar(0, height), r: azar(0.3, 0.6), a: azar(0.08, 0.28) };
-        if (i % 3 === 0) {
-          titilan.push({ ...s, fase: azar(0, Math.PI * 2), vel: (Math.PI * 2) / azar(6000, 12000) });
-        } else {
-          lg.globalAlpha = s.a;
-          lg.beginPath();
-          lg.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-          lg.fill();
-        }
+
+      // Resplandor difuso de la franja, frío con algo de cálido.
+      for (let i = 0; i < (m ? 10 : 16); i++) {
+        const t = azar(-largo / 2, largo / 2);
+        const o = gauss() * sigma * 0.35;
+        const x = cx + dx * t + nx * o;
+        const y = cy + dy * t + ny * o;
+        const rad = sigma * azar(1.1, 2.1);
+        const tono = Math.random() < 0.6 ? "196,208,232" : "232,222,206";
+        const grad = lg.createRadialGradient(x, y, 0, x, y, rad);
+        grad.addColorStop(0, `rgba(${tono},${azar(0.018, 0.034).toFixed(3)})`);
+        grad.addColorStop(1, `rgba(${tono},0)`);
+        lg.fillStyle = grad;
+        lg.fillRect(x - rad, y - rad, rad * 2, rad * 2);
       }
+      // Grietas de polvo: recortan el resplandor a lo largo de la franja.
+      lg.globalCompositeOperation = "destination-out";
+      for (let i = 0; i < 3; i++) {
+        const t = azar(-largo / 3, largo / 3);
+        const o = azar(-0.25, 0.25) * sigma;
+        const rad = sigma * azar(1.6, 2.8);
+        lg.save();
+        lg.translate(cx + dx * t + nx * o, cy + dy * t + ny * o);
+        lg.rotate(ang + azar(-0.12, 0.12));
+        lg.scale(1, azar(0.08, 0.16));
+        const grad = lg.createRadialGradient(0, 0, 0, 0, 0, rad);
+        grad.addColorStop(0, "rgba(0,0,0,0.55)");
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        lg.fillStyle = grad;
+        lg.fillRect(-rad, -rad, rad * 2, rad * 2);
+        lg.restore();
+      }
+      lg.globalCompositeOperation = "source-over";
+
+      // Polvo de estrellas: puntos de un píxel casi invisibles que dan textura
+      // a la franja, como las estrellas que el ojo no alcanza a separar.
+      const nPolvo = Math.round((m ? 260 : Math.min(900, Math.max(380, area * 420))) * factor);
+      for (let i = 0; i < nPolvo; i++) {
+        const [x, y] = posicion(0.6);
+        const lado = azar(0.7, 1.2);
+        lg.globalAlpha = azar(0.05, 0.18);
+        lg.fillStyle = `rgb(${COLORES[colorAzar()][1]})`;
+        lg.fillRect(x, y, lado, lado);
+      }
+
+      // Estrellas fijas, más densas dentro de la franja.
+      for (let i = 0; i < nFijas; i++) {
+        const s = estrella(0.38);
+        lg.globalAlpha = s.a;
+        lg.drawImage(puntos[s.c], s.x - s.tam / 2, s.y - s.tam / 2, s.tam, s.tam);
+      }
+      lg.globalAlpha = 1;
+
+      titilan = Array.from({ length: nTitilan }, () => ({
+        ...estrella(0.25, 0.08),
+        ...centelleo(0.25, 0.6),
+      }));
       medias = Array.from({ length: nMedias }, () => ({
-        x: azar(0, width),
-        y: azar(0, height),
-        tam: azar(7, 11),
-        a: azar(0.45, 0.7),
-        fase: azar(0, Math.PI * 2),
-        vel: (Math.PI * 2) / azar(4000, 8000),
-        vy: azar(0.15, 0.3), // px por segundo
+        ...estrella(0.15, 0.32),
+        ...centelleo(0.15, 0.35),
+        vy: azar(0.12, 0.28), // px por segundo
       }));
-      cercanas = Array.from({ length: nCercanas }, () => ({
-        x: azar(0, width),
-        y: azar(0, height),
-        tam: azar(16, 28),
-        a: azar(0.06, 0.16),
-        vx: azar(-0.25, 0.25),
-        vy: -azar(0.4, 0.8),
-      }));
+
+      // Brillantes: fuera de la columna del texto del hero y separadas entre sí.
+      brillantes = [];
+      for (let intento = 0; brillantes.length < nBrillantes && intento < 60; intento++) {
+        const x = azar(0.04, 0.96) * width;
+        const y = azar(0.06, 0.94) * height;
+        const central = Math.abs(x - width / 2) < width * 0.26 && y > height * 0.14 && y < height * 0.86;
+        const cerca = brillantes.some((b) => Math.hypot(b.x - x, b.y - y) < 160);
+        if (central || cerca) continue;
+        const tam = azar(9, 13);
+        brillantes.push({
+          x,
+          y,
+          c: COLORES_BRILLANTES[Math.floor(Math.random() * COLORES_BRILLANTES.length)],
+          a: azar(0.75, 1),
+          tam,
+          halo: tam * azar(3, 3.8),
+          largo: m ? azar(28, 48) : azar(36, 70),
+          vy: azar(0.2, 0.4),
+          ...centelleo(0.12, 0.26),
+        });
+      }
     };
 
     const dibujar = (t) => {
@@ -122,22 +301,25 @@ export function Starfield() {
       ctx.globalAlpha = intensidad;
       ctx.drawImage(lejana, 0, 0, width, height);
 
-      ctx.fillStyle = "#eef2f8";
       for (const s of titilan) {
-        const brillo = animar ? 0.55 + 0.45 * Math.sin(t * s.vel + s.fase) : 1;
-        ctx.globalAlpha = s.a * brillo * intensidad;
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.globalAlpha = s.a * brillo(s, t) * intensidad;
+        ctx.drawImage(puntos[s.c], s.x - s.tam / 2, s.y - s.tam / 2, s.tam, s.tam);
       }
       for (const s of medias) {
-        const brillo = animar ? 0.6 + 0.4 * Math.sin(t * s.vel + s.fase) : 1;
-        ctx.globalAlpha = s.a * brillo * intensidad;
-        ctx.drawImage(spriteMedia, s.x - s.tam / 2, s.y - s.tam / 2, s.tam, s.tam);
+        ctx.globalAlpha = s.a * brillo(s, t) * intensidad;
+        ctx.drawImage(puntos[s.c], s.x - s.tam / 2, s.y - s.tam / 2, s.tam, s.tam);
       }
-      for (const s of cercanas) {
-        ctx.globalAlpha = s.a * intensidad;
-        ctx.drawImage(spriteCercana, s.x - s.tam / 2, s.y - s.tam / 2, s.tam, s.tam);
+      for (const s of brillantes) {
+        const b = brillo(s, t);
+        const k = s.a * intensidad;
+        ctx.globalAlpha = k * 0.16 * b;
+        ctx.drawImage(puntos[s.c], s.x - s.halo / 2, s.y - s.halo / 2, s.halo, s.halo);
+        // El largo y el brillo de las puntas siguen al centelleo.
+        const largo = s.largo * (0.78 + 0.22 * b);
+        ctx.globalAlpha = k * (0.35 + 0.5 * b);
+        ctx.drawImage(puntas[s.c], s.x - largo / 2, s.y - largo / 2, largo, largo);
+        ctx.globalAlpha = k * (0.7 + 0.3 * b);
+        ctx.drawImage(puntos[s.c], s.x - s.tam / 2, s.y - s.tam / 2, s.tam, s.tam);
       }
       ctx.globalAlpha = 1;
     };
@@ -151,15 +333,12 @@ export function Starfield() {
           s.x = azar(0, width);
         }
       }
-      for (const s of cercanas) {
-        s.x += s.vx * seg;
-        s.y += s.vy * seg;
-        if (s.y < -20) {
-          s.y = height + 20;
+      for (const s of brillantes) {
+        s.y -= s.vy * seg;
+        if (s.y < -s.largo) {
+          s.y = height + s.largo;
           s.x = azar(0, width);
         }
-        if (s.x < -20) s.x = width + 20;
-        else if (s.x > width + 20) s.x = -20;
       }
       // Transición de intensidad suave (~0,8 s).
       intensidad += (objetivo - intensidad) * (1 - Math.exp(-seg / 0.25));
