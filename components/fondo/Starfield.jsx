@@ -273,11 +273,13 @@ export function Starfield() {
       }));
 
       // Brillantes: fuera de la columna del texto del hero y separadas entre sí.
+      // En móvil el titular ocupa casi todo el ancho: solo quedan los bordes.
       brillantes = [];
       for (let intento = 0; brillantes.length < nBrillantes && intento < 60; intento++) {
         const x = azar(0.04, 0.96) * width;
         const y = azar(0.06, 0.94) * height;
-        const central = Math.abs(x - width / 2) < width * 0.26 && y > height * 0.14 && y < height * 0.86;
+        const columna = width * (m ? 0.36 : 0.26);
+        const central = Math.abs(x - width / 2) < columna && y > height * 0.14 && y < height * 0.86;
         const cerca = brillantes.some((b) => Math.hypot(b.x - x, b.y - y) < 160);
         if (central || cerca) continue;
         const tam = azar(9, 13);
