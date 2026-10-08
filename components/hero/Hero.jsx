@@ -1,58 +1,50 @@
 import { Button } from "@/components/ui/Button";
-import { HeroVisual } from "./HeroVisual";
-import { site } from "@/lib/site";
+import { HeroSenal } from "./HeroSenal";
+import { hero } from "@/lib/content/hero";
 import { ctaPrincipal } from "@/lib/content/nav";
 
 /**
- * Hero: etiqueta, titular, subtítulo y dos acciones. Secuencia de entrada
- * breve (halo → título → subtítulo → botones → composición), ver globals.css.
+ * Hero: ¿qué hacemos? Una sola idea, centrada bajo una señal de luz.
+ * Entrada breve: halo y señal, etiqueta, titular, subtítulo y botones.
+ * El titular no espera: es el elemento principal de la primera pintura.
  */
 export function Hero() {
   return (
     <section
       id="inicio"
       aria-labelledby="hero-title"
-      className="relative isolate overflow-hidden px-5 pb-20 pt-[132px] sm:px-8 sm:pt-[156px] lg:pb-28 lg:pt-[176px]"
+      className="relative isolate flex min-h-[100svh] flex-col items-center justify-center overflow-hidden px-5 pb-24 pt-28 text-center sm:px-8 sm:pt-32"
     >
-      {/* Iluminación tenue del fondo, aparece primero */}
       <div
         aria-hidden="true"
-        className="hero-glow pointer-events-none absolute left-1/2 top-[-30%] -z-10 h-[900px] w-[1100px] -translate-x-[30%] bg-[radial-gradient(closest-side,rgba(79,140,255,0.16),rgba(79,140,255,0)_70%)]"
+        className="hero-glow pointer-events-none absolute left-1/2 top-[-10%] -z-10 h-[820px] w-[1100px] -translate-x-1/2 bg-[radial-gradient(closest-side,rgba(79,140,255,0.14),rgba(79,140,255,0)_70%)]"
       />
 
-      <div className="mx-auto grid w-full max-w-[1200px] items-center gap-12 lg:grid-cols-[1.2fr_0.8fr] lg:gap-16">
-        <div className="flex flex-col gap-7">
-          <p className="hero-in eyebrow m-0" style={{ "--d": "150ms" }}>
-            {site.tagline}
-          </p>
-          <h1
-            id="hero-title"
-            className="hero-in text-[length:var(--text-h1)] leading-[1.02] tracking-[-0.035em]"
-            style={{ "--d": "220ms" }}
-          >
-            <span className="block">Verse mejor.</span>
-            <span className="block">Comunicar mejor.</span>
-            <span className="block text-muted">Operar mejor.</span>
-          </h1>
-          <p
-            className="hero-in m-0 max-w-[54ch] text-[length:var(--text-lead)] leading-[1.55] text-text-2"
-            style={{ "--d": "380ms" }}
-          >
-            {site.description}
-          </p>
-          <div
-            className="hero-in mt-1 flex flex-col gap-3 sm:flex-row"
-            style={{ "--d": "520ms" }}
-          >
-            <Button href={ctaPrincipal.href}>{ctaPrincipal.label}</Button>
-            <Button href="#portafolio" variant="secondary">
-              Ver portafolio
-            </Button>
-          </div>
-        </div>
+      <HeroSenal />
 
-        <div className="hero-in" style={{ "--d": "640ms" }}>
-          <HeroVisual />
+      <div className="relative mt-6 flex w-full max-w-[940px] flex-col items-center gap-6 sm:mt-8">
+        <p className="hero-in eyebrow m-0">{hero.etiqueta}</p>
+        <h1
+          id="hero-title"
+          className="hero-in text-[length:var(--text-h1)] leading-[1.02] tracking-[-0.035em]"
+          style={{ "--d": "60ms" }}
+        >
+          {hero.titulo}
+        </h1>
+        <p
+          className="hero-in m-0 max-w-[44ch] text-[length:var(--text-lead)] leading-[1.55] text-text-2"
+          style={{ "--d": "200ms" }}
+        >
+          {hero.subtitulo}
+        </p>
+        <div
+          className="hero-in mt-2 flex w-full flex-col justify-center gap-3 sm:w-auto sm:flex-row"
+          style={{ "--d": "320ms" }}
+        >
+          <Button href={ctaPrincipal.href}>{ctaPrincipal.label}</Button>
+          <Button href={hero.ctaSecundario.href} variant="secondary">
+            {hero.ctaSecundario.label}
+          </Button>
         </div>
       </div>
     </section>

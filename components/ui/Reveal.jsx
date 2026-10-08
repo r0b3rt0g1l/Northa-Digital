@@ -17,16 +17,19 @@ function getObserver() {
         }
       }
     },
-    { rootMargin: "0px 0px -10% 0px", threshold: 0.1 },
+    { rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
   );
   return observer;
 }
 
 /**
- * Revela su contenido (fade + 16 px + escala mínima) al entrar en viewport,
- * una sola vez. Sin librerías: clase CSS `.reveal` + `.is-in`.
- * - prefers-reduced-motion: estado final sin animación (ver globals.css).
- * - Sin JavaScript: `.no-js .reveal` muestra el contenido.
+ * Revela su contenido (fade + 16 px + escala mínima) al entrar en pantalla,
+ * una sola vez. El contenido sale visible del servidor: solo se "arma"
+ * (se oculta) si al montar está por debajo del pliegue. Así no retrasa la
+ * primera pintura, funciona sin JavaScript y respeta prefers-reduced-motion.
+ *
+ * Es un envoltorio: no combines aquí clases con transform propio (hover de
+ * tarjetas); ponlas en un hijo.
  */
 export function Reveal({
   as: Tag = "div",
@@ -41,10 +44,10 @@ export function Reveal({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      el.classList.add("is-in");
-      return;
-    }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const { top } = el.getBoundingClientRect();
+    if (top < window.innerHeight * 0.92) return; // ya visible: no se toca
+    el.classList.add("reveal-armed");
     const io = getObserver();
     io.observe(el);
     return () => io.unobserve(el);
@@ -53,7 +56,7 @@ export function Reveal({
   return (
     <Tag
       ref={ref}
-      className={cn("reveal", className)}
+      className={cn(className)}
       style={delay ? { ...style, "--d": `${delay}ms` } : style}
       {...props}
     >

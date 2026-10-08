@@ -1,67 +1,95 @@
-import { ArrowUpRight } from "lucide-react";
+import Image from "next/image";
+import { ArrowUpRight, ChevronDown } from "lucide-react";
 import { Reveal } from "@/components/ui/Reveal";
-import { PortalPreview } from "./PortalPreview";
 
 /**
- * Caso principal del portafolio: una sola tarjeta de vidrio, honesta y
- * directa. Los enlaces (si existen) son URLs reales del proyecto.
+ * El caso principal: captura real dentro de un marco de navegador, la
+ * descripción y los portales publicados en un desplegable. Sin cifras ni
+ * detalles técnicos. Los enlaces son URLs reales del proyecto.
  */
 export function ProyectoDestacado({ proyecto }) {
-  const { etiqueta, title, description, tags = [], enlaces = [] } = proyecto;
+  const { title, description, imagen, enlaces = [] } = proyecto;
+  const dominio = imagen?.enlace ? new URL(imagen.enlace.url).host : null;
 
   return (
-    <Reveal
-      as="article"
-      className="glass glass-hover grid gap-8 rounded-[24px] p-5 sm:rounded-[28px] sm:p-8 lg:grid-cols-2 lg:items-center lg:gap-10 lg:p-10"
-    >
-      <div className="flex flex-col gap-4 lg:order-1">
-        {etiqueta ? (
-          <span className="inline-flex h-[30px] w-fit items-center rounded-full border border-accent/35 bg-accent/[0.08] px-3 font-mono text-xs tracking-[0.06em] text-[#bfd3ff]">
-            {etiqueta}
-          </span>
-        ) : null}
-        <h3 className="text-[clamp(1.6rem,2vw+1rem,2.125rem)] tracking-[-0.025em]">
-          {title}
-        </h3>
-        <p className="m-0 text-text-2">{description}</p>
-        {tags.length ? (
-          <ul className="m-0 mt-1 flex list-none flex-wrap gap-2 p-0">
-            {tags.map((t) => (
-              <li
-                key={t}
-                className="inline-flex h-[30px] items-center rounded-full border border-line-strong px-3 text-[13px] text-text-2"
+    <Reveal as="article" className="flex flex-col gap-8 sm:gap-10">
+      {imagen ? (
+        <figure className="m-0 flex flex-col gap-3">
+          <a
+            href={imagen.enlace.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="card card-hover group block overflow-hidden rounded-[24px] p-2 sm:p-3"
+          >
+            <span className="flex h-9 items-center gap-1.5 px-3" aria-hidden="true">
+              <span className="h-2.5 w-2.5 rounded-full bg-white/[0.16]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-white/[0.16]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-white/[0.16]" />
+              <span className="ml-3 truncate font-mono text-xs text-faint">{dominio}</span>
+            </span>
+            <Image
+              src={imagen.src}
+              alt={imagen.alt}
+              width={imagen.width}
+              height={imagen.height}
+              sizes="(min-width: 1240px) 1176px, 100vw"
+              loading="lazy"
+              className="aspect-[16/11] h-auto w-full rounded-[16px] object-cover object-left-top transition-transform duration-700 ease-out group-hover:scale-[1.01] motion-reduce:transition-none motion-reduce:group-hover:scale-100 sm:aspect-auto"
+            />
+            <span className="sr-only">Visitar el portal de {imagen.enlace.nombre} (se abre en una pestaña nueva)</span>
+          </a>
+          {imagen.credito ? (
+            <figcaption className="px-2 text-[13px] text-faint">
+              Portal del Municipio de {imagen.enlace.nombre}.{" "}
+              <a
+                href={imagen.credito.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-white/20 underline-offset-4 transition-colors hover:text-text-2"
               >
-                {t}
-              </li>
-            ))}
-          </ul>
-        ) : null}
+                {imagen.credito.texto}
+              </a>
+            </figcaption>
+          ) : null}
+        </figure>
+      ) : null}
+
+      <div className="grid gap-8 md:grid-cols-[1.1fr_0.9fr] md:gap-12">
+        <div className="flex flex-col gap-4">
+          <h3 className="text-[clamp(1.6rem,1.6vw+1rem,2.25rem)] tracking-[-0.025em]">{title}</h3>
+          <p className="m-0 max-w-[54ch] text-[length:var(--text-lead)] leading-[1.55] text-text-2">
+            {description}
+          </p>
+        </div>
+
         {enlaces.length ? (
-          <div className="mt-2 flex flex-col gap-2">
-            <p className="m-0 font-mono text-xs tracking-[0.06em] text-faint">
-              En línea
-            </p>
-            <ul className="m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5 p-0 text-[13.5px]">
+          <details className="card group/lista self-start rounded-[20px] [&_summary::-webkit-details-marker]:hidden">
+            <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-[20px] px-5 text-[15px] font-medium text-text">
+              Ver portales publicados
+              <ChevronDown
+                className="h-4 w-4 text-muted transition-transform duration-300 group-open/lista:rotate-180"
+                aria-hidden="true"
+              />
+            </summary>
+            <ul className="m-0 grid list-none grid-cols-2 gap-x-2 border-t border-line p-2 sm:grid-cols-3 md:grid-cols-2">
               {enlaces.map((e) => (
                 <li key={e.url}>
                   <a
                     href={e.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-0.5 text-muted transition-colors hover:text-text"
+                    className="flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 text-sm text-text-2 transition-colors hover:bg-white/[0.04] hover:text-text"
                   >
                     {e.nombre}
-                    <ArrowUpRight className="h-3 w-3 opacity-60" aria-hidden="true" />
+                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden="true" />
                     <span className="sr-only"> (se abre en una pestaña nueva)</span>
                   </a>
                 </li>
               ))}
             </ul>
-          </div>
+          </details>
         ) : null}
       </div>
-
-      <PortalPreview className="h-[260px] sm:h-[320px] lg:order-2 lg:h-[360px]" />
     </Reveal>
   );
 }

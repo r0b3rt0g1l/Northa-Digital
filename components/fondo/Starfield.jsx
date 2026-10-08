@@ -4,181 +4,290 @@ import { useEffect, useRef } from "react";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 /**
- * Campo de estrellas + partículas en un canvas fijo detrás de toda la página.
- * - Estrellas pequeñas, escasas y de bajo contraste; parpadeo lento (4–9 s).
- * - Pocas partículas con tinte azul y deriva casi imperceptible (profundidad).
- * - ~30 cuadros por segundo, DPR limitado a 1.5, menos puntos en móvil.
- * - Pausa cuando la pestaña no está activa.
- * - prefers-reduced-motion o equipos de pocos núcleos: un solo cuadro estático.
+ * Cielo de fondo en un canvas fijo, con tres capas de profundidad:
+ *  - lejana: muchas estrellas diminutas; casi todas se pintan UNA vez en un
+ *    canvas fuera de pantalla y solo un tercio parpadea;
+ *  - media: pocas estrellas algo más brillantes, con halo y parpadeo lento;
+ *  - cercana: unas cuantas motas desenfocadas que derivan muy despacio.
+ *
+ * Intensidad por sección: 100 % en el hero y el cierre, 40 % detrás del
+ * contenido. Solo se anima mientras el hero o el cierre están en pantalla;
+ * en el resto queda un cuadro fijo. 30 cuadros por segundo con acumulador,
+ * DPR máximo 1,5, pausa con la pestaña oculta, y un cuadro estático con
+ * prefers-reduced-motion o ahorro de datos. Si el equipo va justo, reduce
+ * densidad y cuadros por segundo a la mitad.
  */
+
+const ALTA = 1;
+const BAJA = 0.4;
+const SECCIONES_ALTAS = ["inicio", "empezar"];
+
+const azar = (min, max) => min + Math.random() * (max - min);
+
+function sprite(radio, color) {
+  const lado = Math.ceil(radio * 2);
+  const c = document.createElement("canvas");
+  c.width = lado;
+  c.height = lado;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(radio, radio, 0, radio, radio, radio);
+  grad.addColorStop(0, `rgba(${color},1)`);
+  grad.addColorStop(0.18, `rgba(${color},0.55)`);
+  grad.addColorStop(1, `rgba(${color},0)`);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, lado, lado);
+  return c;
+}
+
 export function Starfield() {
   const canvasRef = useRef(null);
   const reduced = useReducedMotion();
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d", { alpha: true });
-    if (!ctx) return;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
 
-    const mobileQuery = window.matchMedia("(max-width: 768px)");
-    const lowPower =
-      typeof navigator !== "undefined" &&
-      navigator.hardwareConcurrency &&
-      navigator.hardwareConcurrency <= 2;
-    const animate = !reduced && !lowPower;
+    const ahorro = navigator.connection?.saveData === true;
+    const animar = !reduced && !ahorro;
+    const movil = () => window.matchMedia("(max-width: 768px)").matches;
 
-    const FRAME = 1000 / 30;
+    let frame = 1000 / 30;
+    let factor = 1; // 1 o 0.5 si el equipo va justo
     let width = 0;
     let height = 0;
-    let stars = [];
-    let motes = [];
+    let dpr = 1;
+    let lejana = null; // canvas con la capa lejana estática
+    let titilan = [];
+    let medias = [];
+    let cercanas = [];
+    let intensidad = ALTA;
+    let objetivo = ALTA;
     let rafId = null;
-    let last = 0;
+    let ultimo = 0;
+    let previo = 0;
+    const tiempos = [];
 
-    const init = () => {
-      const mobile = mobileQuery.matches;
-      const area = width * height;
-      const count = Math.round(
-        Math.min(mobile ? 36 : 90, Math.max(24, area / (mobile ? 22000 : 16000))),
-      );
-      stars = Array.from({ length: count }, () => ({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        r: 0.4 + Math.random() * 0.7,
-        a: 0.15 + Math.random() * 0.35,
-        phase: Math.random() * Math.PI * 2,
-        speed: (Math.PI * 2) / (4000 + Math.random() * 5000),
-        vy: 0.004 + Math.random() * 0.01,
+    const spriteMedia = sprite(6, "235,242,255");
+    const spriteCercana = sprite(14, "127,211,255");
+
+    const poblar = () => {
+      const area = (width * height) / 1e6;
+      const m = movil();
+      const nLejanas = Math.round((m ? 90 : Math.min(320, Math.max(120, area * 170))) * factor);
+      const nMedias = Math.round((m ? 12 : Math.min(40, Math.max(18, area * 23))) * factor);
+      const nCercanas = m ? 4 : 8;
+
+      // Capa lejana: dos tercios fijos en un canvas aparte; un tercio titila.
+      lejana = document.createElement("canvas");
+      lejana.width = Math.floor(width * dpr);
+      lejana.height = Math.floor(height * dpr);
+      const lg = lejana.getContext("2d");
+      lg.setTransform(dpr, 0, 0, dpr, 0, 0);
+      lg.fillStyle = "#eef2f8";
+      titilan = [];
+      for (let i = 0; i < nLejanas; i++) {
+        const s = { x: azar(0, width), y: azar(0, height), r: azar(0.3, 0.6), a: azar(0.08, 0.28) };
+        if (i % 3 === 0) {
+          titilan.push({ ...s, fase: azar(0, Math.PI * 2), vel: (Math.PI * 2) / azar(6000, 12000) });
+        } else {
+          lg.globalAlpha = s.a;
+          lg.beginPath();
+          lg.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+          lg.fill();
+        }
+      }
+      medias = Array.from({ length: nMedias }, () => ({
+        x: azar(0, width),
+        y: azar(0, height),
+        tam: azar(7, 11),
+        a: azar(0.45, 0.7),
+        fase: azar(0, Math.PI * 2),
+        vel: (Math.PI * 2) / azar(4000, 8000),
+        vy: azar(0.15, 0.3), // px por segundo
       }));
-      motes = Array.from({ length: mobile ? 4 : 8 }, () => ({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        r: 1.5 + Math.random(),
-        a: 0.16 + Math.random() * 0.18,
-        vx: (Math.random() - 0.5) * 0.03,
-        vy: -(0.01 + Math.random() * 0.02),
+      cercanas = Array.from({ length: nCercanas }, () => ({
+        x: azar(0, width),
+        y: azar(0, height),
+        tam: azar(16, 28),
+        a: azar(0.06, 0.16),
+        vx: azar(-0.25, 0.25),
+        vy: -azar(0.4, 0.8),
       }));
     };
 
-    const draw = (t) => {
+    const dibujar = (t) => {
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = "#f2f4f7";
-      for (const s of stars) {
-        const twinkle = animate ? 0.6 + 0.4 * Math.sin(t * s.speed + s.phase) : 1;
-        ctx.globalAlpha = s.a * twinkle;
+      ctx.globalAlpha = intensidad;
+      ctx.drawImage(lejana, 0, 0, width, height);
+
+      ctx.fillStyle = "#eef2f8";
+      for (const s of titilan) {
+        const brillo = animar ? 0.55 + 0.45 * Math.sin(t * s.vel + s.fase) : 1;
+        ctx.globalAlpha = s.a * brillo * intensidad;
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
         ctx.fill();
       }
+      for (const s of medias) {
+        const brillo = animar ? 0.6 + 0.4 * Math.sin(t * s.vel + s.fase) : 1;
+        ctx.globalAlpha = s.a * brillo * intensidad;
+        ctx.drawImage(spriteMedia, s.x - s.tam / 2, s.y - s.tam / 2, s.tam, s.tam);
+      }
+      for (const s of cercanas) {
+        ctx.globalAlpha = s.a * intensidad;
+        ctx.drawImage(spriteCercana, s.x - s.tam / 2, s.y - s.tam / 2, s.tam, s.tam);
+      }
       ctx.globalAlpha = 1;
-      for (const m of motes) {
-        const radius = m.r * 3;
-        const g = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, radius);
-        g.addColorStop(0, `rgba(127,211,255,${m.a})`);
-        g.addColorStop(1, "rgba(127,211,255,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(m.x, m.y, radius, 0, Math.PI * 2);
-        ctx.fill();
+    };
+
+    const mover = (dt) => {
+      const seg = dt / 1000;
+      for (const s of medias) {
+        s.y -= s.vy * seg;
+        if (s.y < -8) {
+          s.y = height + 8;
+          s.x = azar(0, width);
+        }
+      }
+      for (const s of cercanas) {
+        s.x += s.vx * seg;
+        s.y += s.vy * seg;
+        if (s.y < -20) {
+          s.y = height + 20;
+          s.x = azar(0, width);
+        }
+        if (s.x < -20) s.x = width + 20;
+        else if (s.x > width + 20) s.x = -20;
+      }
+      // Transición de intensidad suave (~0,8 s).
+      intensidad += (objetivo - intensidad) * (1 - Math.exp(-seg / 0.25));
+    };
+
+    const vigilarPresupuesto = (inicio) => {
+      if (factor < 1 || tiempos.length >= 60) return;
+      tiempos.push(performance.now() - inicio);
+      if (tiempos.length === 60) {
+        const p95 = [...tiempos].sort((a, b) => a - b)[56];
+        if (p95 > 4) {
+          factor = 0.5;
+          frame = 1000 / 20;
+          poblar();
+        }
       }
     };
 
     const tick = (t) => {
       rafId = requestAnimationFrame(tick);
-      if (t - last < FRAME) return;
-      const dt = Math.min(t - last, 100) / 16;
-      last = t;
-      for (const s of stars) {
-        s.y -= s.vy * dt;
-        if (s.y < -2) {
-          s.y = height + 2;
-          s.x = Math.random() * width;
-        }
+      if (ultimo && t - ultimo < frame - 2) return;
+      const dt = previo ? Math.min(t - previo, 100) : frame;
+      previo = t;
+      ultimo = ultimo ? t - ((t - ultimo) % frame) : t;
+      const inicio = performance.now();
+      mover(dt);
+      dibujar(t);
+      vigilarPresupuesto(inicio);
+      // Fuera de hero y cierre, al terminar la transición queda un cuadro fijo.
+      if (objetivo === BAJA && Math.abs(intensidad - BAJA) < 0.005) {
+        intensidad = BAJA;
+        dibujar(t);
+        detener();
       }
-      for (const m of motes) {
-        m.x += m.vx * dt;
-        m.y += m.vy * dt;
-        if (m.y < -12) {
-          m.y = height + 12;
-          m.x = Math.random() * width;
-        }
-        if (m.x < -12) m.x = width + 12;
-        else if (m.x > width + 12) m.x = -12;
-      }
-      draw(t);
     };
 
-    const start = () => {
-      if (animate && rafId == null) {
-        last = 0;
-        rafId = requestAnimationFrame(tick);
-      }
+    const arrancar = () => {
+      if (!animar || rafId != null || document.hidden) return;
+      ultimo = 0;
+      previo = 0;
+      rafId = requestAnimationFrame(tick);
     };
-    const stop = () => {
+    function detener() {
       if (rafId != null) {
         cancelAnimationFrame(rafId);
         rafId = null;
       }
+    }
+
+    const fijarObjetivo = (nuevo) => {
+      objetivo = nuevo;
+      if (animar) arrancar();
+      else {
+        intensidad = nuevo;
+        dibujar(0);
+      }
     };
 
-    const size = (reinit) => {
+    const medir = (repoblar) => {
       width = window.innerWidth;
       height = window.innerHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if (reinit) init();
-      draw(performance.now());
+      if (repoblar || !lejana) poblar();
+      dibujar(performance.now());
     };
 
-    // En móvil la barra del navegador cambia la altura al hacer scroll:
-    // solo se regeneran los puntos si el cambio es grande.
-    let lastW = 0;
-    let lastH = 0;
-    let resizeTimer = null;
+    // En móvil la barra del navegador cambia el alto al hacer scroll: solo se
+    // regenera el cielo si el cambio es grande.
+    let ultimoAncho = window.innerWidth;
+    let ultimoAlto = window.innerHeight;
+    let timer = null;
     const onResize = () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
         const w = window.innerWidth;
         const h = window.innerHeight;
-        const reinit = w !== lastW || Math.abs(h - lastH) > 160;
-        lastW = w;
-        lastH = h;
-        size(reinit);
-      }, 120);
+        const repoblar = w !== ultimoAncho || Math.abs(h - ultimoAlto) > 160;
+        ultimoAncho = w;
+        ultimoAlto = h;
+        medir(repoblar);
+      }, 150);
     };
 
-    lastW = window.innerWidth;
-    lastH = window.innerHeight;
-    size(true);
-    start();
+    medir(true);
+
+    // Intensidad según las secciones visibles.
+    const altas = SECCIONES_ALTAS.map((id) => document.getElementById(id)).filter(Boolean);
+    const visibles = new Set();
+    let io = null;
+    if (altas.length) {
+      // Cuenta como visible si se ve al menos un 15 % bajo la barra fija; un
+      // borde que asoma tras ella no enciende el cielo.
+      io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting && e.intersectionRatio >= 0.15) visibles.add(e.target.id);
+            else visibles.delete(e.target.id);
+          }
+          fijarObjetivo(visibles.size ? ALTA : BAJA);
+        },
+        { rootMargin: "-96px 0px 0px 0px", threshold: [0, 0.15, 0.3] },
+      );
+      altas.forEach((el) => io.observe(el));
+    } else {
+      fijarObjetivo(ALTA); // páginas sin hero (404): cielo completo
+    }
 
     const onVisibility = () => {
-      if (document.hidden) stop();
-      else start();
+      if (document.hidden) detener();
+      else if (objetivo === ALTA || Math.abs(intensidad - objetivo) > 0.005) arrancar();
     };
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      stop();
-      clearTimeout(resizeTimer);
+      detener();
+      clearTimeout(timer);
+      io?.disconnect();
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [reduced]);
 
-  return (
-    <canvas
-      ref={canvasRef}
-      aria-hidden="true"
-      className="starfield pointer-events-none fixed inset-0 z-0"
-    />
-  );
+  return <canvas ref={canvasRef} aria-hidden="true" className="starfield pointer-events-none fixed inset-0 z-0" />;
 }
 
 export default Starfield;

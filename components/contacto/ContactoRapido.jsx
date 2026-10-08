@@ -1,130 +1,185 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Send, Loader2, CheckCircle2, AlertCircle, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { opcionesContacto } from "@/lib/content/contacto";
-import { site } from "@/lib/site";
+import { contacto as textos, opcionesContacto } from "@/lib/content/contacto";
+import { site, whatsappConTexto } from "@/lib/site";
+import {
+  EVENTO_MENSAJE,
+  abrirAsistente,
+  alTerminarScroll,
+  irASeccion,
+} from "@/lib/acciones";
 
 const WEB3FORMS_ENDPOINT = "https://api.web3forms.com/submit";
+const ES_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const fieldClasses =
-  "w-full border border-line-strong bg-bg/60 px-4 text-base text-text outline-none transition-[border-color,box-shadow] placeholder:text-faint focus:border-accent focus:ring-2 focus:ring-accent/25";
+const campo =
+  "w-full border border-line-strong bg-bg/60 px-4 text-base text-text outline-hidden transition-[border-color,box-shadow] placeholder:text-faint focus:border-accent focus:ring-2 focus:ring-accent/25";
+
+const botonPrimario =
+  "inline-flex h-[52px] items-center justify-center gap-2 rounded-full bg-text px-6 text-[15px] font-semibold text-bg shadow-[0_12px_40px_-16px_rgba(79,140,255,0.6)] transition-[background-color,box-shadow,scale] duration-300 hover:bg-white active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60";
+
+const enlaceSuave =
+  "inline-flex min-h-11 items-center gap-2 rounded-full px-1 text-sm font-medium text-text-2 underline decoration-white/25 underline-offset-4 transition-colors hover:text-text hover:decoration-white/60";
 
 /**
- * "Cuéntanos qué necesitas en 30 segundos": texto libre, chips opcionales y
- * un solo dato de contacto. Envía por Web3Forms; sin clave configurada,
- * ofrece mandar el mismo mensaje por WhatsApp. Nunca bloquea con preguntas.
+ * "Cuéntanos qué necesitas en 30 segundos": texto libre, temas opcionales y
+ * un solo dato para responder. Dos vías, las dos funcionales:
+ *  - Con clave de Web3Forms: "Enviar mensaje" envía por correo y WhatsApp
+ *    queda como segunda opción con el mismo texto.
+ *  - Sin clave: el botón principal abre WhatsApp con el mensaje armado.
+ * Sin JavaScript también funciona y nunca deja datos en la URL del sitio.
  */
 export function ContactoRapido({ accessKey = "" }) {
+  const conClave = Boolean(accessKey);
   const uid = useId();
+  const textareaRef = useRef(null);
   const [status, setStatus] = useState("idle"); // idle | submitting | success | error | whatsapp
-  const [errorMsg, setErrorMsg] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [contacto, setContacto] = useState("");
-  const [interes, setInteres] = useState([]);
+  const [temas, setTemas] = useState([]);
+  const [trampa, setTrampa] = useState(false);
 
-  const toggleInteres = (id) =>
-    setInteres((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
+  const etiquetasTemas = opcionesContacto.filter((o) => temas.includes(o.id)).map((o) => o.label);
+  const textoWhatsapp = [
+    etiquetasTemas.length ? `Tema: ${etiquetasTemas.join(", ")}.` : "",
+    mensaje.trim(),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const urlWhatsapp = whatsappConTexto(textoWhatsapp);
 
-  const interesLabels = opcionesContacto
-    .filter((o) => interes.includes(o.id))
-    .map((o) => o.label);
+  const enfocar = () => textareaRef.current?.focus({ preventScroll: true });
 
-  const whatsappText = encodeURIComponent(
-    [
-      "Hola, les escribo desde northa.digital.",
-      interesLabels.length ? `Interés: ${interesLabels.join(", ")}.` : "",
-      mensaje.trim(),
-      contacto.trim() ? `Contacto: ${contacto.trim()}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  );
-  const whatsappUrl = `${site.contact.whatsappHref}?text=${whatsappText}`;
+  // El asistente puede traer al visitante aquí con su pregunta precargada.
+  useEffect(() => {
+    const onMensaje = (e) => {
+      const texto = e.detail?.texto?.trim();
+      if (texto) setMensaje((prev) => (prev.trim() ? prev : texto));
+      setStatus((s) => (s === "success" ? "idle" : s));
+      irASeccion("contacto");
+      alTerminarScroll(enfocar);
+    };
+    window.addEventListener(EVENTO_MENSAJE, onMensaje);
+    return () => window.removeEventListener(EVENTO_MENSAJE, onMensaje);
+  }, []);
+
+  // Los botones "Cuéntanos tu proyecto" dejan el cursor listo para escribir
+  // en escritorio o con teclado; en táctil no se abre el teclado sin pedirlo.
+  useEffect(() => {
+    const onClick = (e) => {
+      const a = e.target instanceof Element ? e.target.closest('a[href="/#contacto"], a[href="#contacto"]') : null;
+      if (!a || window.location.pathname !== "/") return;
+      const conTeclado = e.detail === 0;
+      if (!conTeclado && !window.matchMedia("(pointer: fine)").matches) return;
+      alTerminarScroll(enfocar);
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
+
+  const toggleTema = (id) =>
+    setTemas((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const abrirWhatsapp = () => {
+    const ventana = window.open(urlWhatsapp, "_blank", "noopener,noreferrer");
+    if (!ventana) window.location.assign(urlWhatsapp);
+    setStatus("whatsapp");
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    if (!accessKey) {
-      setStatus("whatsapp");
+    if (!conClave) {
+      abrirWhatsapp();
       return;
     }
+    if (trampa) return; // honeypot: un humano nunca marca esta casilla
     setStatus("submitting");
-    setErrorMsg("");
     try {
+      const correo = ES_CORREO.test(contacto.trim()) ? contacto.trim() : undefined;
       const res = await fetch(WEB3FORMS_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
           access_key: accessKey,
-          subject: "Nuevo mensaje — Northa Digital",
-          from_name: "Northa Digital · Sitio",
+          subject: "Nuevo mensaje desde el sitio de Northa Digital",
+          from_name: "Sitio de Northa Digital",
           mensaje: mensaje.trim(),
           contacto: contacto.trim(),
-          interes: interesLabels.join(", "),
-          botcheck: "",
+          temas: etiquetasTemas.join(", ") || "Sin tema",
+          ...(correo ? { replyto: correo } : {}),
+          botcheck: false,
         }),
       });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.message || "No se pudo enviar.");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success) throw new Error("envío rechazado");
       setStatus("success");
       setMensaje("");
       setContacto("");
-      setInteres([]);
-    } catch (err) {
+      setTemas([]);
+    } catch {
       setStatus("error");
-      setErrorMsg(err?.message || "");
     }
   };
 
   if (status === "success") {
     return (
-      <div
-        role="status"
-        className="flex flex-col items-start gap-4 rounded-[20px] border border-accent/30 bg-accent/[0.07] p-6 sm:p-8"
-      >
+      <div role="status" className="mt-8 flex flex-col items-start gap-4 rounded-[20px] border border-accent/30 bg-accent/[0.07] p-6 sm:p-8">
         <CheckCircle2 className="h-7 w-7 text-accent-2" aria-hidden="true" />
         <h3 className="text-[length:var(--text-h3)]">Mensaje enviado</h3>
         <p className="m-0 max-w-[50ch] text-text-2">
-          Gracias por escribir. Lo leeremos con atención y te responderemos con
-          claridad sobre el siguiente paso.
+          Gracias por escribir. Te responderemos con el siguiente paso.
         </p>
-        <button
-          type="button"
-          onClick={() => setStatus("idle")}
-          className="text-sm font-medium text-muted underline underline-offset-4 transition-colors hover:text-text"
-        >
+        <button type="button" onClick={() => setStatus("idle")} className={enlaceSuave}>
           Enviar otro mensaje
         </button>
       </div>
     );
   }
 
+  // Sin JavaScript: con clave, POST directo a Web3Forms; sin clave, el
+  // mensaje se abre en WhatsApp (el único destino que verá el texto).
+  const formSinJs = conClave
+    ? { method: "post", action: WEB3FORMS_ENDPOINT }
+    : { method: "get", action: site.contact.whatsappHref, target: "_blank" };
+
   return (
-    <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-5" noValidate={false}>
-      {/* Chips opcionales */}
-      <div role="group" aria-label="Orienta tu mensaje (opcional)" className="flex flex-wrap gap-2">
-        {opcionesContacto.map((o) => {
-          const on = interes.includes(o.id);
-          return (
-            <button
-              key={o.id}
-              type="button"
-              aria-pressed={on}
-              onClick={() => toggleInteres(o.id)}
-              className={cn(
-                "inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-medium transition-[border-color,background-color,color] duration-200",
-                on
-                  ? "border-accent/60 bg-accent/10 text-text"
-                  : "border-line-strong bg-white/[0.03] text-text-2 hover:border-white/25 hover:text-text",
-              )}
-            >
-              {o.label}
-            </button>
-          );
-        })}
+    <form {...formSinJs} onSubmit={onSubmit} className="mt-8 flex flex-col gap-6">
+      {conClave ? (
+        <>
+          <input type="hidden" name="access_key" value={accessKey} />
+          <input type="hidden" name="subject" value="Nuevo mensaje desde el sitio de Northa Digital" />
+          <input type="hidden" name="from_name" value="Sitio de Northa Digital" />
+        </>
+      ) : null}
+
+      <div className="flex flex-col gap-3">
+        <p id={`${uid}-temas`} className="m-0 text-sm text-muted">
+          {textos.etiquetaTemas}
+        </p>
+        <div role="group" aria-labelledby={`${uid}-temas`} className="flex flex-wrap gap-2">
+          {opcionesContacto.map((o) => {
+            const activo = temas.includes(o.id);
+            return (
+              <button
+                key={o.id}
+                type="button"
+                aria-pressed={activo}
+                onClick={() => toggleTema(o.id)}
+                className={cn(
+                  "inline-flex min-h-11 items-center rounded-full border px-4 text-[13.5px] font-medium transition-[border-color,background-color,color] duration-200",
+                  activo
+                    ? "border-accent/60 bg-accent/10 text-text"
+                    : "border-line-strong bg-white/[0.03] text-text-2 hover:border-white/25 hover:text-text",
+                )}
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -132,8 +187,9 @@ export function ContactoRapido({ accessKey = "" }) {
           Tu mensaje
         </label>
         <textarea
+          ref={textareaRef}
           id={`${uid}-mensaje`}
-          name="mensaje"
+          name={conClave ? "mensaje" : "text"}
           required
           minLength={10}
           maxLength={2000}
@@ -141,11 +197,11 @@ export function ContactoRapido({ accessKey = "" }) {
           value={mensaje}
           onChange={(e) => setMensaje(e.target.value)}
           placeholder="Por ejemplo: necesitamos un portal para publicar información y recibir solicitudes…"
-          className={cn(fieldClasses, "resize-y rounded-2xl py-3.5 leading-relaxed")}
+          className={cn(campo, "resize-y rounded-2xl py-3.5 leading-relaxed")}
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+      {conClave ? (
         <div className="flex flex-col gap-2">
           <label htmlFor={`${uid}-contacto`} className="text-sm font-semibold text-text">
             Correo o WhatsApp para responderte
@@ -154,38 +210,19 @@ export function ContactoRapido({ accessKey = "" }) {
             id={`${uid}-contacto`}
             name="contacto"
             type="text"
-            inputMode="email"
-            autoComplete="email"
+            autoComplete="on"
             required
             minLength={6}
             maxLength={120}
             value={contacto}
             onChange={(e) => setContacto(e.target.value)}
-            placeholder="tu@correo.com o +52 …"
-            className={cn(fieldClasses, "h-[52px] rounded-full")}
+            placeholder="tu@correo.com o 662 000 0000"
+            className={cn(campo, "h-[52px] rounded-full")}
           />
         </div>
-        <button
-          type="submit"
-          disabled={status === "submitting"}
-          data-magnetic=""
-          className="inline-flex h-[52px] items-center justify-center gap-2 rounded-full bg-text px-6 text-[15px] font-semibold text-bg shadow-[0_12px_40px_-16px_rgba(79,140,255,0.6)] transition-[background-color,box-shadow] duration-300 hover:bg-white hover:shadow-[0_16px_48px_-16px_rgba(79,140,255,0.8)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {status === "submitting" ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Enviando…
-            </>
-          ) : (
-            <>
-              <Send className="h-4 w-4" aria-hidden="true" />
-              Enviar mensaje
-            </>
-          )}
-        </button>
-      </div>
+      ) : null}
 
-      {/* Honeypot de Web3Forms */}
+      {/* Honeypot de Web3Forms: invisible para personas. */}
       <input
         type="checkbox"
         name="botcheck"
@@ -193,62 +230,73 @@ export function ContactoRapido({ accessKey = "" }) {
         autoComplete="off"
         aria-hidden="true"
         className="hidden"
+        checked={trampa}
+        onChange={(e) => setTrampa(e.target.checked)}
       />
 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-5">
+        <button type="submit" disabled={status === "submitting"} data-magnetic="" className={botonPrimario}>
+          {status === "submitting" ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Enviando…
+            </>
+          ) : conClave ? (
+            <>
+              <Send className="h-4 w-4" aria-hidden="true" />
+              Enviar mensaje
+            </>
+          ) : (
+            <>
+              <MessageCircle className="h-4 w-4" aria-hidden="true" />
+              Enviar por WhatsApp
+            </>
+          )}
+        </button>
+        {conClave ? (
+          <a href={urlWhatsapp} target="_blank" rel="noopener noreferrer" className={enlaceSuave}>
+            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            o envíalo por WhatsApp
+          </a>
+        ) : (
+          <a href={site.contact.emailHref} className={enlaceSuave}>
+            o escríbenos por correo
+          </a>
+        )}
+      </div>
+
+      {status === "whatsapp" ? (
+        <p role="status" className="m-0 rounded-2xl border border-accent/30 bg-accent/[0.07] px-4 py-3 text-sm text-text-2">
+          Abrimos WhatsApp con tu mensaje para que lo envíes desde ahí. Si no se abrió,{" "}
+          <a href={urlWhatsapp} target="_blank" rel="noopener noreferrer" className="font-semibold text-text underline underline-offset-4">
+            usa este enlace
+          </a>
+          .
+        </p>
+      ) : null}
+
       {status === "error" ? (
-        <p
-          role="alert"
-          className="m-0 flex items-start gap-2 rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-200"
-        >
+        <p role="alert" className="m-0 flex items-start gap-2 rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>
             No se pudo enviar. Intenta de nuevo o{" "}
-            <a
-              href={whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-4"
-            >
-              mándanos el mensaje por WhatsApp
+            <a href={urlWhatsapp} target="_blank" rel="noopener noreferrer" className="font-semibold underline underline-offset-4">
+              envíalo por WhatsApp
             </a>
             .
-            {errorMsg ? (
-              <span className="mt-1 block text-xs text-red-200/70">{errorMsg}</span>
-            ) : null}
           </span>
         </p>
       ) : null}
 
-      {status === "whatsapp" ? (
-        <p
-          role="status"
-          className="m-0 flex flex-wrap items-center gap-3 rounded-2xl border border-accent/30 bg-accent/[0.07] px-4 py-3 text-sm text-text-2"
-        >
-          <span>Tu mensaje está listo.</span>
-          <a
-            href={whatsappUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 font-semibold text-text underline underline-offset-4"
-          >
-            <MessageCircle className="h-4 w-4" aria-hidden="true" />
-            Enviarlo por WhatsApp
-          </a>
+      <div className="flex flex-col gap-1 border-t border-line pt-5 text-sm text-muted sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
+        <p className="m-0">{textos.privacidad}</p>
+        <p className="m-0 flex flex-wrap items-center gap-x-1">
+          {textos.asistente.replace(/\.$/, "")}:
+          <button type="button" onClick={() => abrirAsistente()} aria-haspopup="dialog" className={enlaceSuave}>
+            abrir asistente
+          </button>
         </p>
-      ) : (
-        <p className="m-0 text-sm text-muted">
-          Si lo prefieres, escríbenos directo por{" "}
-          <a
-            href={site.contact.whatsappHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-text-2 underline underline-offset-4 transition-colors hover:text-text"
-          >
-            WhatsApp
-          </a>
-          .
-        </p>
-      )}
+      </div>
     </form>
   );
 }
