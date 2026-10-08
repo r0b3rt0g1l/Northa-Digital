@@ -1,0 +1,404 @@
+@import "tailwindcss";
+
+/* =========================================================
+   Northa Digital — sistema visual
+   Negro grafito, vidrio oscuro (liquid glass), un acento azul.
+   ========================================================= */
+
+@theme {
+  /* Paleta */
+  --color-bg: #07080a;
+  --color-surface: #0e1014;
+  --color-surface-2: #13161b;
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.14);
+  --color-text: #f2f4f7;
+  --color-text-2: #b4bcc8;
+  --color-muted: #9aa4b2;
+  --color-faint: #6f7986;
+  --color-accent: #4f8cff;
+  --color-accent-2: #7fd3ff;
+
+  /* Tipografía (ver lib/fonts.js) */
+  --font-sans: var(--font-manrope);
+  --font-display: var(--font-sora);
+  --font-mono: var(--font-jetbrains-mono);
+
+  /* Escala fluida */
+  --text-eyebrow: 0.78rem;
+  --text-body: clamp(1rem, 0.3vw + 0.95rem, 1.0625rem);
+  --text-lead: clamp(1.0625rem, 0.5vw + 0.95rem, 1.1875rem);
+  --text-h3: clamp(1.3rem, 1vw + 1rem, 1.625rem);
+  --text-h2: clamp(2rem, 2.8vw + 1rem, 3.25rem);
+  --text-h1: clamp(2.6rem, 4.3vw + 1rem, 4.75rem);
+  --text-cierre: clamp(2.4rem, 4vw + 1rem, 3.75rem);
+
+  /* Movimiento */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Radios */
+  --radius-control: 12px;
+  --radius-card: 20px;
+  --radius-block: 28px;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    overflow-x: clip;
+    scroll-behavior: smooth;
+    text-rendering: optimizeLegibility;
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    overflow-x: clip;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+    font-size: var(--text-body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display), system-ui, sans-serif;
+    font-weight: 600;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    color: var(--color-text);
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 4px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background-color: rgba(79, 140, 255, 0.45);
+    color: #fff;
+  }
+
+  img,
+  picture,
+  svg,
+  video,
+  canvas {
+    display: block;
+    max-width: 100%;
+  }
+
+  input,
+  textarea,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  ::placeholder {
+    color: var(--color-faint);
+    opacity: 1;
+  }
+}
+
+@layer components {
+  /* ---------- Liquid glass ----------
+     Vidrio tratado como material: fondo translúcido saturado, borde con
+     luz que recorre el contorno (::before), reflejo especular que sigue
+     al puntero (::after, --mx/--my) y línea de luz interior. */
+  .glass,
+  .glass-strong {
+    position: relative;
+    isolation: isolate;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    background:
+      linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.1),
+        rgba(255, 255, 255, 0.025) 38%,
+        rgba(255, 255, 255, 0) 60%,
+        rgba(255, 255, 255, 0.045)
+      ),
+      rgba(14, 16, 20, 0.5);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+      inset 1px 0 0 rgba(255, 255, 255, 0.07),
+      0 30px 70px -36px rgba(0, 0, 0, 0.9);
+    -webkit-backdrop-filter: blur(22px) saturate(170%) brightness(1.06);
+    backdrop-filter: blur(22px) saturate(170%) brightness(1.06);
+  }
+
+  .glass-strong {
+    background:
+      linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.12),
+        rgba(255, 255, 255, 0.03) 38%,
+        rgba(255, 255, 255, 0) 60%,
+        rgba(255, 255, 255, 0.05)
+      ),
+      rgba(16, 18, 24, 0.62);
+    -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.08);
+    backdrop-filter: blur(28px) saturate(180%) brightness(1.08);
+  }
+
+  .glass::before,
+  .glass-strong::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.42),
+      rgba(255, 255, 255, 0.08) 32%,
+      rgba(255, 255, 255, 0.03) 58%,
+      rgba(127, 211, 255, 0.22)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .glass::after,
+  .glass-strong::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      radial-gradient(
+        160px 110px at var(--mx, 18%) var(--my, -4%),
+        rgba(255, 255, 255, 0.16),
+        rgba(255, 255, 255, 0) 70%
+      ),
+      radial-gradient(
+        60% 40% at 90% 110%,
+        rgba(127, 211, 255, 0.1),
+        rgba(127, 211, 255, 0) 70%
+      );
+    pointer-events: none;
+    z-index: -1;
+    transition: opacity 0.4s var(--ease-out);
+  }
+
+  /* Sin backdrop-filter: superficie casi opaca con el mismo borde. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass {
+      background: rgba(14, 16, 20, 0.92);
+    }
+    .glass-strong {
+      background: rgba(16, 18, 24, 0.95);
+    }
+  }
+
+  /* Piezas de vidrio interactivas (tarjetas, botones secundarios) */
+  .glass-hover {
+    transition:
+      transform 0.35s var(--ease-out),
+      box-shadow 0.35s var(--ease-out);
+  }
+  .glass-hover:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.26),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+      inset 1px 0 0 rgba(255, 255, 255, 0.09),
+      0 36px 80px -36px rgba(0, 0, 0, 0.95);
+  }
+  .glass-hover:hover::after {
+    opacity: 1.35;
+  }
+  .glass-hover:active {
+    transform: translateY(0) scale(0.985);
+  }
+
+  /* ---------- Etiqueta mono ---------- */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: var(--text-eyebrow);
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+  }
+  .eyebrow::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-accent);
+    box-shadow: 0 0 12px rgba(79, 140, 255, 0.9);
+    flex-shrink: 0;
+  }
+
+  /* ---------- Revelado al hacer scroll ---------- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+    transition:
+      opacity 0.7s var(--ease-out),
+      transform 0.7s var(--ease-out);
+    transition-delay: var(--d, 0ms);
+    will-change: opacity, transform;
+  }
+  .reveal.is-in {
+    opacity: 1;
+    transform: none;
+    will-change: auto;
+  }
+
+  /* Sin JavaScript: el contenido se muestra tal cual. */
+  .no-js .reveal {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Fondo de estrellas: aparece al final de la secuencia del hero. */
+  .starfield {
+    opacity: 0;
+    animation: hero-glow 1.8s ease-out 0.7s both;
+  }
+
+  /* ---------- Secuencia de entrada del hero ---------- */
+  @keyframes hero-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes hero-glow {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  .hero-in {
+    animation: hero-in 0.9s var(--ease-out) both;
+    animation-delay: var(--d, 0ms);
+  }
+  .hero-glow {
+    animation: hero-glow 1.6s ease-out both;
+  }
+
+  /* ---------- Cursor (solo puntero fino) ---------- */
+  .cursor-halo {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 90;
+    width: 28px;
+    height: 28px;
+    margin: -14px 0 0 -14px;
+    border-radius: 999px;
+    border: 1.5px solid rgba(242, 244, 247, 0.4);
+    background: rgba(242, 244, 247, 0.04);
+    pointer-events: none;
+    opacity: 0;
+    transition:
+      width 0.25s var(--ease-out),
+      height 0.25s var(--ease-out),
+      margin 0.25s var(--ease-out),
+      opacity 0.3s ease,
+      border-color 0.25s ease,
+      background-color 0.25s ease;
+    will-change: transform;
+  }
+  .cursor-halo.is-visible {
+    opacity: 1;
+  }
+  .cursor-halo.is-active {
+    width: 48px;
+    height: 48px;
+    margin: -24px 0 0 -24px;
+    border-color: rgba(79, 140, 255, 0.55);
+    background: rgba(79, 140, 255, 0.07);
+  }
+  .cursor-halo.is-text {
+    width: 6px;
+    height: 6px;
+    margin: -3px 0 0 -3px;
+    border-color: transparent;
+    background: rgba(242, 244, 247, 0.6);
+  }
+
+  [data-magnetic] {
+    transition: transform 0.35s var(--ease-out);
+  }
+}
+
+/* Impresión: todo visible, sin fondo animado ni cursor. */
+@media print {
+  .reveal,
+  .hero-in,
+  .hero-glow {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+  .starfield,
+  .cursor-halo {
+    display: none;
+  }
+}
+
+/* Movimiento reducido: estados finales, sin animación. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .reveal,
+  .hero-in,
+  .hero-glow,
+  .starfield {
+    opacity: 1;
+    transform: none;
+    animation: none;
+    transition: none;
+  }
+  .glass-hover,
+  .glass-hover:hover,
+  [data-magnetic] {
+    transition: none;
+    transform: none;
+  }
+  .cursor-halo {
+    display: none;
+  }
+}
