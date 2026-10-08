@@ -116,6 +116,13 @@ export function Cursor() {
       }
     };
     const onEnter = () => iniciado && halo.classList.add("is-visible");
+    // Con la rueda el puntero no se mueve: el botón no debe quedarse desplazado.
+    const onScroll = () => {
+      if (!iman.el) return;
+      iman.tx = 0;
+      iman.ty = 0;
+      despertar();
+    };
     const onDown = (e) => e.pointerType === "mouse" && halo.classList.add("is-pressed");
     const onUp = () => halo.classList.remove("is-pressed");
 
@@ -124,6 +131,7 @@ export function Cursor() {
     document.documentElement.addEventListener("mouseenter", onEnter);
     window.addEventListener("pointerdown", onDown, { passive: true });
     window.addEventListener("pointerup", onUp, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
 
     return () => {
       if (rafId != null) cancelAnimationFrame(rafId);
@@ -132,6 +140,7 @@ export function Cursor() {
       document.documentElement.removeEventListener("mouseenter", onEnter);
       window.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("scroll", onScroll);
       soltarIman(null);
     };
   }, [reduced]);

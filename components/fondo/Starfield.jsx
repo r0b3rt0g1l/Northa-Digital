@@ -117,6 +117,7 @@ export function Starfield() {
     };
 
     const dibujar = (t) => {
+      if (!width || !height) return; // ventana sin tamaño (iframe oculto)
       ctx.clearRect(0, 0, width, height);
       ctx.globalAlpha = intensidad;
       ctx.drawImage(lejana, 0, 0, width, height);
@@ -182,7 +183,8 @@ export function Starfield() {
       if (ultimo && t - ultimo < frame - 2) return;
       const dt = previo ? Math.min(t - previo, 100) : frame;
       previo = t;
-      ultimo = ultimo ? t - ((t - ultimo) % frame) : t;
+      // Avanza en pasos exactos de `frame`: 30 cps reales a 60, 90, 120 o 144 Hz.
+      ultimo = ultimo ? Math.max(ultimo + frame, t - frame) : t;
       const inicio = performance.now();
       mover(dt);
       dibujar(t);

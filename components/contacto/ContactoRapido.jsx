@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { contacto as textos, opcionesContacto } from "@/lib/content/contacto";
 import { site, whatsappConTexto } from "@/lib/site";
 import {
+  CLAVE_MENSAJE_PENDIENTE,
   EVENTO_MENSAJE,
   abrirAsistente,
   alTerminarScroll,
@@ -63,7 +64,19 @@ export function ContactoRapido({ accessKey = "" }) {
       alTerminarScroll(enfocar);
     };
     window.addEventListener(EVENTO_MENSAJE, onMensaje);
-    return () => window.removeEventListener(EVENTO_MENSAJE, onMensaje);
+    // Mensaje que el asistente dejó pendiente desde otra página (404).
+    let pendiente = null;
+    try {
+      pendiente = sessionStorage.getItem(CLAVE_MENSAJE_PENDIENTE);
+      sessionStorage.removeItem(CLAVE_MENSAJE_PENDIENTE);
+    } catch {}
+    const t = pendiente
+      ? setTimeout(() => window.dispatchEvent(new CustomEvent(EVENTO_MENSAJE, { detail: { texto: pendiente } })), 300)
+      : null;
+    return () => {
+      window.removeEventListener(EVENTO_MENSAJE, onMensaje);
+      if (t) clearTimeout(t);
+    };
   }, []);
 
   // Los botones "Cuéntanos tu proyecto" dejan el cursor listo para escribir
@@ -84,13 +97,39 @@ export function ContactoRapido({ accessKey = "" }) {
     setTemas((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const abrirWhatsapp = () => {
-    const ventana = window.open(urlWhatsapp, "_blank", "noopener,noreferrer");
-    if (!ventana) window.location.assign(urlWhatsapp);
+    // Sin "noopener" en las opciones: con él, window.open siempre devuelve
+    // null y el respaldo se llevaría también esta pestaña.
+    const ventana = window.open(urlWhatsapp, "_blank");
+    if (ventana) {
+      try {
+        ventana.opener = null;
+      } catch {}
+    } else {
+      window.location.assign(urlWhatsapp);
+    }
     setStatus("whatsapp");
+  };
+
+  // Validación con los valores reales (sin espacios) y un dato de contacto
+  // que sirva para responder: un correo o un número de al menos 10 dígitos.
+  const validar = (form) => {
+    textareaRef.current?.setCustomValidity(
+      mensaje.trim().length < 10 ? "Cuéntanos un poco más: al menos 10 caracteres." : "",
+    );
+    const campoContacto = form.elements.namedItem("contacto");
+    if (campoContacto) {
+      const valor = contacto.trim();
+      const digitos = valor.replace(/\D/g, "").length;
+      campoContacto.setCustomValidity(
+        ES_CORREO.test(valor) || digitos >= 10 ? "" : "Escribe un correo o un número de WhatsApp de 10 dígitos.",
+      );
+    }
+    return form.reportValidity();
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
+    if (!validar(e.currentTarget)) return;
     if (!conClave) {
       abrirWhatsapp();
       return;
@@ -195,7 +234,10 @@ export function ContactoRapido({ accessKey = "" }) {
           maxLength={2000}
           rows={3}
           value={mensaje}
-          onChange={(e) => setMensaje(e.target.value)}
+          onChange={(e) => {
+            e.target.setCustomValidity("");
+            setMensaje(e.target.value);
+          }}
           placeholder="Por ejemplo: necesitamos un portal para publicar información y recibir solicitudes…"
           className={cn(campo, "resize-y rounded-2xl py-3.5 leading-relaxed")}
         />
@@ -215,7 +257,10 @@ export function ContactoRapido({ accessKey = "" }) {
             minLength={6}
             maxLength={120}
             value={contacto}
-            onChange={(e) => setContacto(e.target.value)}
+            onChange={(e) => {
+              e.target.setCustomValidity("");
+              setContacto(e.target.value);
+            }}
             placeholder="tu@correo.com o 662 000 0000"
             className={cn(campo, "h-[52px] rounded-full")}
           />

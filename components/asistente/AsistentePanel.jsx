@@ -7,7 +7,7 @@ import { StarIcon } from "@/components/ui/StarIcon";
 import { asistente } from "@/lib/content/asistente";
 import { responderTema, responderTexto, temaPorId } from "@/lib/asistente";
 import { site, whatsappConTexto } from "@/lib/site";
-import { irAlFormulario, irASeccion } from "@/lib/acciones";
+import { CLAVE_MENSAJE_PENDIENTE, irAlFormulario, irASeccion } from "@/lib/acciones";
 
 const CLAVE = "northa-asistente-v1";
 const MAX_MENSAJES = 40;
@@ -20,11 +20,18 @@ const saludo = () => ({
 });
 
 function leerHistorial() {
+  let guardado = null;
   try {
-    const guardado = JSON.parse(sessionStorage.getItem(CLAVE) || "null");
-    if (Array.isArray(guardado) && guardado.length) return guardado;
+    guardado = JSON.parse(sessionStorage.getItem(CLAVE) || "null");
   } catch {}
-  return [saludo()];
+  if (!Array.isArray(guardado) || !guardado.length) return [saludo()];
+  // Si el panel se cerró antes de responder, la respuesta se agrega ahora.
+  const ultimo = guardado[guardado.length - 1];
+  if (ultimo?.autor === "usuario") {
+    const r = ultimo.tema ? responderTema(ultimo.tema) : responderTexto(ultimo.texto ?? "");
+    if (r) return [...guardado, { id: `b${Date.now()}`, autor: "bot", ...r }];
+  }
+  return guardado;
 }
 
 function guardarHistorial(mensajes) {
@@ -72,17 +79,23 @@ export default function AsistentePanel({ onCerrar, preguntaInicial, onPreguntaUs
     if (lista) lista.scrollTo({ top: lista.scrollHeight, behavior: reducido() ? "auto" : "smooth" });
   }, [mensajes, escribiendo]);
 
-  // Escape cierra y devuelve el foco al botón del asistente.
+  // Escape cierra y devuelve el foco al botón del asistente, solo si el foco
+  // está en el panel (o en ninguna parte): no interfiere con otros campos.
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape") onCerrar(true);
+      if (e.key !== "Escape") return;
+      const activo = document.activeElement;
+      if (panelRef.current?.contains(activo) || !activo || activo === document.body) onCerrar(true);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onCerrar]);
 
-  const responder = (deUsuario, respuesta) => {
-    setMensajes((prev) => [...prev, { id: `u${Date.now()}`, autor: "usuario", texto: deUsuario }]);
+  const responder = (deUsuario, respuesta, tema) => {
+    setMensajes((prev) => [
+      ...prev,
+      { id: `u${Date.now()}`, autor: "usuario", texto: deUsuario, ...(tema ? { tema } : {}) },
+    ]);
     setEscribiendo(true);
     const t = setTimeout(
       () => {
@@ -104,7 +117,7 @@ export default function AsistentePanel({ onCerrar, preguntaInicial, onPreguntaUs
   const elegirTema = (id) => {
     const tema = temaPorId(id);
     if (!tema || escribiendo) return;
-    responder(tema.pregunta, () => responderTema(id));
+    responder(tema.pregunta, () => responderTema(id), id);
   };
 
   // Una pregunta enviada desde fuera (botón "Hablar con el asistente").
@@ -136,6 +149,10 @@ export default function AsistentePanel({ onCerrar, preguntaInicial, onPreguntaUs
       if (esMovil()) onCerrar(false);
     } else if (a.tipo === "formulario") {
       if (!enInicio) {
+        // Desde otra página: la pregunta viaja guardada y el formulario la recoge.
+        try {
+          if (a.texto) sessionStorage.setItem(CLAVE_MENSAJE_PENDIENTE, a.texto);
+        } catch {}
         window.location.assign("/#contacto");
         return;
       }

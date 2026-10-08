@@ -379,6 +379,11 @@
   .starfield {
     animation: aparecer 1.2s ease-out both;
   }
+  /* Solo opacidad: deja libre el transform del hover. */
+  .lanzador-in {
+    animation: aparecer 0.6s ease-out both;
+    animation-delay: var(--d, 0ms);
+  }
 
   /* ---------- La señal del hero ----------
      Un punto de luz con destello de ocho puntas, halo que respira y un pulso
@@ -633,7 +638,8 @@
   .reveal-armed,
   .hero-in,
   .hero-glow,
-  .starfield {
+  .starfield,
+  .lanzador-in {
     opacity: 1;
     transform: none;
     animation: none;

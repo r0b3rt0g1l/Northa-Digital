@@ -8,6 +8,7 @@ import { Starfield } from "@/components/fondo/Starfield";
 import { GlassPointer } from "@/components/fondo/GlassPointer";
 import { Cursor } from "@/components/cursor/Cursor";
 import { Asistente } from "@/components/asistente/Asistente";
+import { AnclasInternas } from "@/components/ui/AnclasInternas";
 import "./globals.css";
 
 export const metadata = buildMetadata();
@@ -29,6 +30,7 @@ export default function RootLayout({ children }) {
         <Starfield />
         <GlassPointer />
         <Cursor />
+        <AnclasInternas />
         <Nav />
         <main id="contenido" className="relative z-10">
           {children}
