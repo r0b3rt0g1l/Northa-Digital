@@ -129,10 +129,18 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
     guardarEstado(estado);
   }, [estado]);
 
-  // Lleva la conversación al final y el foco a las nuevas opciones.
+  // Lleva la conversación al final y el foco a las nuevas opciones. En el
+  // resumen se ancla en la última burbuja del visitante: así quedan a la vista
+  // la respuesta a lo último que escribió y el principio de la tarjeta.
   useLayoutEffect(() => {
     const lista = listaRef.current;
-    if (lista) lista.scrollTo({ top: lista.scrollHeight, behavior: reducido() ? "auto" : "smooth" });
+    if (lista) {
+      const ancla = modo === "resumen" ? [...lista.children].findLast((n) => n.tagName === "P") : null;
+      const top = ancla
+        ? lista.scrollTop + ancla.getBoundingClientRect().top - lista.getBoundingClientRect().top - 12
+        : lista.scrollHeight;
+      lista.scrollTo({ top, behavior: reducido() ? "auto" : "smooth" });
+    }
     if (!enfocarControles.current) return;
     enfocarControles.current = false;
     const primero =
@@ -175,11 +183,10 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
           return { ...prev, modo: "resumen", editando: false, pendientes: [], mensajes: conResumen(prev.mensajes) };
         }
         if (prev.respuestas?.servicio) {
+          // Conserva la edición en curso (editando y pendientes) si la había.
           return {
             ...prev,
             modo: "consulta",
-            editando: false,
-            pendientes: [],
             mensajes: [...prev.mensajes, bot(`Sigamos con tu consulta. ${pasos[prev.paso].pregunta}`)],
           };
         }
@@ -306,7 +313,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
     });
   };
 
-  const cambiar = (campo) => {
+  const cambiar = (campo, eco) => {
     const i = pasos.findIndex((p) => p.campo === campo);
     if (i < 0) return;
     actualizar((prev) => ({
@@ -317,7 +324,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
       editando: true,
       // Si cambia el servicio, cambian las opciones de objetivo y requisitos.
       pendientes: campo === "servicio" ? ["objetivo", "requisitos"] : [],
-      mensajes: [...prev.mensajes, usuario(`Cambiar: ${pasos[i].titulo.toLowerCase()}`), preguntaDe(pasos[i])],
+      mensajes: [...prev.mensajes, usuario(eco ?? `Cambiar: ${pasos[i].titulo.toLowerCase()}`), preguntaDe(pasos[i])],
     }));
   };
 
@@ -349,6 +356,8 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
         mensajes: prev.modo === "resumen" ? conResumen(mensajes) : mensajes,
       };
     });
+    // En el resumen el foco se queda en el campo de texto.
+    if (modo === "resumen") enfocarControles.current = false;
   };
 
   const elegirTema = (id) => {
@@ -386,7 +395,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
     if (!limpio) return;
     setTexto("");
     if (modo === "consulta" && pasoActual) {
-      if (PIDE_PERSONA.test(limpio)) {
+      if (PIDE_PERSONA.test(limpio) && limpio.split(/\s+/).length <= 7) {
         mostrarPersona(limpio);
         return;
       }
@@ -397,7 +406,8 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
         return;
       }
       if (pasoActual.multiple) {
-        responderPaso([...seleccion, limpio], [...seleccion, limpio].join(", "));
+        const elegidas = [...new Set([...seleccion, limpio])];
+        responderPaso(elegidas, elegidas.join(", "));
         return;
       }
       responderPaso(limpio);
@@ -501,7 +511,15 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
     controles = (
       <>
         {(pasoActual.multiple
-          ? [...opcionesPaso, ...seleccion.filter((o) => !opcionesPaso.includes(o))]
+          ? [
+              ...opcionesPaso,
+              ...new Set(
+                [
+                  ...(Array.isArray(respuestas[pasoActual.campo]) ? respuestas[pasoActual.campo] : []),
+                  ...seleccion,
+                ].filter((o) => !opcionesPaso.includes(o)),
+              ),
+            ]
           : opcionesPaso
         ).map((o) => {
           const activa = pasoActual.multiple && seleccion.includes(o);
@@ -675,7 +693,12 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
                       {pasos
                         .filter((p) => p.opcional && !respuestas[p.campo])
                         .map((p) => (
-                          <button key={p.campo} type="button" onClick={() => cambiar(p.campo)} className={accion}>
+                          <button
+                            key={p.campo}
+                            type="button"
+                            onClick={() => cambiar(p.campo, `Añadir ${p.titulo.toLowerCase()}`)}
+                            className={accion}
+                          >
                             Añadir {p.titulo.toLowerCase()}
                           </button>
                         ))}
@@ -733,7 +756,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
           ref={controlesRef}
           role="group"
           aria-label={pasoActual ? `Paso ${paso + 1} de ${pasos.length}. ${pasoActual.pregunta}` : "Opciones"}
-          className="flex max-h-[42%] shrink-0 flex-wrap gap-2 overflow-y-auto border-t border-line px-4 py-3"
+          className="flex max-h-[42svh] min-h-0 shrink flex-wrap gap-2 overflow-y-auto border-t border-line px-4 py-3"
         >
           {controles}
         </div>
