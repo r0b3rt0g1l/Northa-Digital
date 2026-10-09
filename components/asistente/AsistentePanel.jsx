@@ -15,13 +15,15 @@ import {
   lineasResumen,
   mensajeConsulta,
   OPCION_OTRA,
+  opcionDesdeTexto,
   pasos,
   pasosVisibles,
+  preguntaSola,
   quitarRespuesta,
   respuestasDesde,
   siguientePaso,
 } from "@/lib/content/consulta";
-import { responderTema, responderTexto, temaPorId } from "@/lib/asistente";
+import { interpretar, responderTema, responderTexto, temaPorId } from "@/lib/asistente";
 import { site, textoWhatsapp, whatsappConTexto } from "@/lib/site";
 import { irASeccion } from "@/lib/acciones";
 
@@ -30,8 +32,14 @@ const MAX_MENSAJES = 60;
 const MODOS = ["consulta", "resumen", "dudas", "persona"];
 // Datos que se conservan si el visitante empieza otra consulta desde la página.
 const DATOS_PERSONALES = ["organizacion", "nombre", "contacto", "correo"];
-// Frases breves y explícitas para pedir una persona en cualquier momento.
-const PIDE_PERSONA = /hablar con (una |alguna )?persona|hablar con alguien|persona del equipo|asesor(a)? humano|atenci[oó]n humana/i;
+// Frases explícitas para pedir una persona en cualquier momento.
+const PIDE_PERSONA =
+  /hablar con (una |un |alguna |alg[uú]n )?(persona|alguien|asesor(a)?|humano|ejecutiv[oa])|persona del equipo|atenci[oó]n humana|asesor(a)? humano/i;
+// Dudas frecuentes que se contestan a mitad de la conversación sin guardarlas
+// como respuesta; después se repite la pregunta pendiente.
+const DUDAS_EN_CURSO = ["costos", "tiempos", "proceso", "asistente", "ubicacion", "redes-northa", "mantenimiento", "seguridad"];
+/** Recorta por caracteres reales (no parte un emoji por la mitad). */
+const recortar = (t, n) => Array.from(t).slice(0, n).join("");
 
 let contador = 0;
 const nuevoId = (prefijo) => `${prefijo}${Date.now().toString(36)}${(contador++).toString(36)}`;
@@ -57,7 +65,7 @@ function saludo(r, paso) {
   if (paso === 0 && !r.tiposSugeridos) return [bot(consulta.bienvenida)];
   const hola = ["¡Hola! Soy el asistente de Northa Digital.", temaDe(r)];
   if (paso >= pasos.length) return [bot(hola.filter(Boolean).join(" ")), bot(consulta.cierre, { tipo: "resumen" })];
-  return [bot([...hola, pasos[paso].pregunta(r).replace(/^Perfecto\. /, "")].filter(Boolean).join(" "))];
+  return [bot([...hola, preguntaSola(paso, r)].filter(Boolean).join(" "))];
 }
 
 function estadoInicial(respuestas = {}) {
@@ -131,6 +139,8 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
   const controlesRef = useRef(null);
   const inputRef = useRef(null);
   const enfocarControles = useRef(true);
+  // El visitante respondió escribiendo: el foco sigue en el campo.
+  const escribiendo = useRef(false);
 
   const { mensajes, modo, paso, respuestas } = estado;
   const pasoActual = modo === "consulta" ? pasos[paso] : null;
@@ -153,10 +163,24 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
     }
     if (!enfocarControles.current) return;
     enfocarControles.current = false;
+    // Pasos que se responden escribiendo (municipio, nombre, correo): el foco
+    // va al campo con puntero fino; en táctil no se abre el teclado solo.
+    const soloTexto =
+      modo === "consulta" && pasos[paso]?.texto && !pasos[paso].opciones(respuestas).length &&
+      window.matchMedia("(pointer: fine)").matches;
+    // Quien responde escribiendo sigue en el campo mientras dura la consulta;
+    // el cierre lleva el foco a la tarjeta del resumen.
+    const seguirEscribiendo = escribiendo.current;
+    escribiendo.current = false;
+    if (modo === "consulta" && (seguirEscribiendo || soloTexto)) {
+      inputRef.current?.focus({ preventScroll: true });
+      return;
+    }
     const primero =
       controlesRef.current?.querySelector("button, a, input") ??
       (modo === "resumen" ? listaRef.current?.querySelector("[data-resumen] button") : null);
     (primero ?? inputRef.current)?.focus({ preventScroll: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mensajes.length, modo, paso]);
 
   // Escape cierra el panel esté donde esté el foco; solo lo devuelve al botón
@@ -199,7 +223,9 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
     actualizar((prev) => {
       if (!servicioId) {
         // Sin servicio: sigue la conversación en curso o vuelve al cierre.
-        if (prev.modo === "consulta") return prev;
+        if (prev.modo === "consulta") {
+          return { ...prev, mensajes: [...prev.mensajes, bot(`Sigamos. ${preguntaSola(prev.paso, prev.respuestas)}`)] };
+        }
         if (consultaCompleta(prev.respuestas)) {
           return { ...prev, modo: "resumen", mensajes: conCierre(prev.mensajes) };
         }
@@ -209,7 +235,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
           ...prev,
           modo: "consulta",
           paso: sig,
-          mensajes: [...prev.mensajes, bot(intro + pasos[sig].pregunta(prev.respuestas).replace(/^Perfecto\. /, ""))],
+          mensajes: [...prev.mensajes, bot(intro + preguntaSola(sig, prev.respuestas))],
         };
       }
       // Desde un servicio de la página: nueva consulta sobre ese servicio que
@@ -225,12 +251,15 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
       if (sig >= pasos.length) {
         return { ...prev, respuestas: r, modo: "resumen", mensajes: conCierre([...prev.mensajes, bot(tema)]) };
       }
+      // Si esa misma pregunta ya es la última del chat, solo se nombra el tema.
+      const pregunta = preguntaSola(sig, r);
+      const yaPreguntada = prev.modo === "consulta" && prev.paso === sig && prev.mensajes.at(-1)?.texto?.endsWith(pregunta);
       return {
         ...prev,
         respuestas: r,
         modo: "consulta",
         paso: sig,
-        mensajes: [...prev.mensajes, bot([tema, pasos[sig].pregunta(r).replace(/^Perfecto\. /, "")].filter(Boolean).join(" "))],
+        mensajes: [...prev.mensajes, bot(yaPreguntada ? tema : [tema, pregunta].filter(Boolean).join(" "))],
       };
     });
   }, []);
@@ -254,7 +283,9 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
 
   /** Paso anterior con respuesta (para «Atrás»), o -1. */
   const anterior = pasoActual
-    ? pasos.findLastIndex((p, i) => i < paso && aplica(p, respuestas) && p.campo in respuestas)
+    ? pasos.findLastIndex(
+        (p, i) => i < paso && aplica(p, respuestas) && p.campo in respuestas && !respuestas.precargados?.includes(p.campo),
+      )
     : -1;
 
   const atras = () => {
@@ -262,7 +293,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
     actualizar((prev) => {
       const r = quitarRespuesta(prev.respuestas, pasos[anterior].campo);
       const sig = siguientePaso(r);
-      return { ...prev, respuestas: r, paso: sig, mensajes: [...prev.mensajes, usuario("Atrás"), bot(pasos[sig].pregunta(r))] };
+      return { ...prev, respuestas: r, paso: sig, mensajes: [...prev.mensajes, usuario("Atrás"), bot(preguntaSola(sig, r))] };
     });
   };
 
@@ -278,7 +309,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
         respuestas: r,
         modo: "consulta",
         paso: sig,
-        mensajes: [...prev.mensajes, usuario(`Cambiar: ${pasos[i].titulo.toLowerCase()}`), bot(pasos[sig].pregunta(r))],
+        mensajes: [...prev.mensajes, usuario(`Cambiar: ${pasos[i].titulo.toLowerCase()}`), bot(preguntaSola(sig, r))],
       };
     });
   };
@@ -304,6 +335,9 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
   const responderDuda = (deUsuario, respuesta) => {
     actualizar((prev) => {
       const nuevos = [...prev.mensajes, usuario(deUsuario), bot(respuesta.texto, respuesta)];
+      if (prev.modo === "consulta") {
+        return { ...prev, mensajes: [...nuevos, bot(`Sigamos. ${preguntaSola(prev.paso, prev.respuestas)}`)] };
+      }
       return {
         ...prev,
         modo: prev.modo === "consulta" || prev.modo === "resumen" ? prev.modo : "dudas",
@@ -345,30 +379,73 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
 
   // ---------- Texto libre ----------
 
+  /** Un aviso del asistente sin cambiar de paso ni mover el foco. */
+  const avisar = (deUsuario, texto) => {
+    setEstado((prev) => ({ ...prev, mensajes: [...prev.mensajes, usuario(deUsuario), bot(texto)] }));
+    inputRef.current?.focus({ preventScroll: true });
+  };
+
   const enviarTexto = (valor) => {
-    const limpio = valor.trim().slice(0, 200);
+    const limpio = recortar(valor.trim(), 200);
     if (!limpio) return;
-    setTexto("");
+    const paso = pasoActual?.campo;
+    const pidePersona = PIDE_PERSONA.test(limpio) && (paso !== "necesidad" || limpio.split(/\s+/).length <= 7);
+    if ((modo === "consulta" || modo === "resumen") && pidePersona) {
+      setTexto("");
+      mostrarPersona(limpio);
+      return;
+    }
     if (modo === "consulta" && pasoActual) {
-      if (PIDE_PERSONA.test(limpio) && limpio.split(/\s+/).length <= 7) {
-        mostrarPersona(limpio);
+      // El correo se valida antes de borrar el campo: si falla, sigue ahí.
+      if (paso === "correo") {
+        if (!correoValido(limpio)) {
+          avisar(limpio, consulta.correoInvalido);
+          return;
+        }
+        setTexto("");
+        escribiendo.current = true;
+        responderPaso(limpio);
         return;
       }
-      if (pasoActual.campo === "correo" && !correoValido(limpio)) {
-        actualizar((prev) => ({ ...prev, mensajes: [...prev.mensajes, usuario(limpio), bot(consulta.correoInvalido)] }));
+      setTexto("");
+      escribiendo.current = true;
+      const tema = interpretar(limpio).tema?.id;
+      // Un saludo en el primer paso: se saluda y se repite la pregunta.
+      if (paso === "tipo" && tema === "saludo") {
+        actualizar((prev) => ({ ...prev, mensajes: [...prev.mensajes, usuario(limpio), bot(`¡Hola! ${preguntaSola(0, prev.respuestas)}`)] }));
         return;
       }
-      if (pasoActual.texto) {
-        responderPaso(pasoActual.campo === "nombre" ? limpio.slice(0, 60) : limpio);
+      // Contacto: un correo escrito elige «Correo» y lo guarda de una vez.
+      if (paso === "contacto" && correoValido(limpio)) {
+        actualizar((prev) => {
+          const r = aplicarRespuesta(aplicarRespuesta(prev.respuestas, "contacto", "Correo"), "correo", limpio);
+          return avanzar(prev, r, [usuario(limpio)]);
+        });
         return;
       }
-      // Pasos solo con opciones: se acepta lo escrito si coincide con una.
-      const opcion = pasoActual.opciones(respuestas).find((o) => normalizar(o).includes(normalizar(limpio)) || normalizar(limpio).includes(normalizar(o)));
+      // Pasos de solo opciones: se entienden sinónimos («por teléfono», «es para mi negocio»).
+      const opcion = !pasoActual.texto ? opcionDesdeTexto(paso, limpio) : null;
       if (opcion) {
         responderPaso(opcion, limpio);
         return;
       }
+      // Dudas a mitad (precio, plazos, quién responde…) o una pregunta donde
+      // va un nombre: se contestan y la pregunta del paso sigue pendiente.
+      const esDuda = DUDAS_EN_CURSO.includes(tema) && paso !== "contacto";
+      const preguntaEnDato = (paso === "organizacion" || paso === "nombre") && /[¿?]/.test(limpio);
+      if (esDuda || preguntaEnDato) {
+        responderDuda(limpio, responderTexto(limpio));
+        return;
+      }
+      if (pasoActual.texto) {
+        responderPaso(paso === "nombre" ? recortar(limpio, 60) : limpio);
+        return;
+      }
+      // Paso de solo opciones sin coincidencia: se pide elegir, sin cambiar de paso.
+      avisar(limpio, tema && tema !== "saludo" ? responderTexto(limpio).texto : "Elige una de las opciones de abajo o escríbela con otras palabras.");
+      return;
     }
+    setTexto("");
     responderDuda(limpio, responderTexto(limpio));
   };
 
@@ -400,7 +477,9 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
     <div className="flex flex-wrap gap-2">
       <a
         href={whatsappConTexto(
-          completa ? `${mensajeConsulta(respuestas)}\n\n${consulta.mensajePersona}` : consulta.mensajePersona,
+          lineasResumen(respuestas).length
+            ? `${mensajeConsulta(respuestas)}\n\n${consulta.mensajePersona}`
+            : consulta.mensajePersona,
           respuestas.nombre,
         )}
         target="_blank"
@@ -427,7 +506,10 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
       return (
         <a
           key={a.label}
-          href={whatsappConTexto(a.texto ?? "", respuestas.nombre)}
+          href={whatsappConTexto(
+            completa ? `${mensajeConsulta(respuestas)}\n\n${a.texto ?? ""}`.trim() : a.texto ?? "",
+            respuestas.nombre,
+          )}
           target="_blank"
           rel="noopener noreferrer"
           className={accion}
@@ -508,7 +590,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
         {atajos}
       </>
     );
-  } else if (modo === "dudas" && !(ultimo?.autor === "bot" && ultimo?.sugerencias?.length)) {
+  } else if (modo === "dudas") {
     controles = (
       <>
         <button type="button" className={chip} onClick={() => iniciarConsulta()}>
@@ -539,7 +621,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
       role="dialog"
       aria-modal="false"
       aria-labelledby={`${uid}-titulo`}
-      aria-describedby={`${uid}-aviso`}
+      aria-describedby={`${uid}-desc ${uid}-aviso`}
       data-asistente=""
       className="glass-strong panel-opaco panel-in fixed inset-x-3 bottom-3 z-[60] flex max-h-[min(86svh,700px)] flex-col overflow-hidden rounded-[24px] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[400px] sm:max-h-[min(680px,calc(100svh-110px))]"
     >
@@ -551,7 +633,9 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
           <h2 id={`${uid}-titulo`} className="text-[15px] leading-tight tracking-[-0.01em]">
             {asistente.nombre}
           </h2>
-          <p className="m-0 text-xs leading-snug text-muted">{asistente.descripcion}</p>
+          <p id={`${uid}-desc`} className="m-0 text-xs leading-snug text-muted">
+            {asistente.descripcion}
+          </p>
         </div>
         <button
           type="button"
@@ -650,7 +734,14 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
 
               {m.tipo === "persona" && m === ultimo ? contacto : null}
 
-              {m.acciones?.length ? <div className="flex flex-wrap gap-2">{m.acciones.map(pintarAccion)}</div> : null}
+              {m.acciones?.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {m.acciones
+                    // «Contar mi proyecto» sobra si ya se está contando o ya está completo.
+                    .filter((a) => !(a.tipo === "consulta" && !a.servicio && (m !== ultimo || modo === "consulta" || completa)))
+                    .map(pintarAccion)}
+                </div>
+              ) : null}
 
               {m === ultimo && m.sugerencias?.length && modo === "dudas" ? (
                 <div className="flex flex-wrap gap-2" role="group" aria-label="Preguntas frecuentes">
@@ -688,7 +779,7 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
         className="flex items-center gap-2 border-t border-line p-3"
       >
         <label htmlFor={`${uid}-texto`} className="sr-only">
-          {placeholder.replace("…", "")}
+          {pasoActual?.etiqueta ?? placeholder.replace("…", "")}
         </label>
         <input
           ref={inputRef}
@@ -697,6 +788,8 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
           inputMode={pasoActual?.campo === "correo" ? "email" : undefined}
           autoComplete={pasoActual?.campo === "nombre" ? "given-name" : pasoActual?.campo === "correo" ? "email" : "off"}
           maxLength={200}
+          aria-invalid={ultimo?.texto === consulta.correoInvalido || undefined}
+          aria-describedby={ultimo?.texto === consulta.correoInvalido ? `${uid}-error` : undefined}
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
           placeholder={placeholder}
@@ -714,6 +807,11 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
           <Send className="h-4 w-4" aria-hidden="true" />
         </button>
       </form>
+      {ultimo?.texto === consulta.correoInvalido ? (
+        <p id={`${uid}-error`} className="sr-only">
+          {consulta.correoInvalido}
+        </p>
+      ) : null}
       <p id={`${uid}-aviso`} className="m-0 px-4 pb-3 text-[12px] leading-snug text-faint">
         {consulta.aviso}
       </p>

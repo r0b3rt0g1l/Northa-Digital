@@ -37,8 +37,8 @@ asistente. La página no repite tarjetas de servicios.
 - **Portafolio:** un widget al estilo de Apple que pasa solo por los 15 municipios
   con portal publicado (cada 2,6 s, con pausa), con la insignia «Hecho por Northa
   Digital», y la lista con el enlace a cada portal. Mazatán lleva la portada real
-  de su portal; el resto, un diseño con su color institucional, tomado de su
-  escudo o logotipo oficial.
+  de su portal; el resto, un diseño con su color institucional, tomado del
+  escudo o logotipo que usa su propio portal (provisional en varios casos).
 - **Seguridad:** una sola pieza de confianza: implementamos medidas modernas de
   protección y control de acceso para las plataformas administrativas. Sin
   detalles técnicos, herramientas ni pantallas de acceso.
@@ -50,7 +50,8 @@ asistente. La página no repite tarjetas de servicios.
 - **Tipografía:** Sora para títulos, Manrope para texto y JetBrains Mono para
   etiquetas cortas.
 - Se mueven de forma continua el cielo, los destellos de la señal, la banda de
-  servicios y el widget del portafolio; la banda y el widget tienen botón de pausa.
+  servicios y el widget del portafolio; la banda y el widget tienen botón de pausa
+  y se detienen fuera de pantalla.
   El resto de animaciones dura unos segundos y se detiene solo. Todo respeta
   `prefers-reduced-motion`: el cielo queda quieto, la banda se muestra fija y el
   widget no avanza solo. El contenido funciona sin JavaScript.
@@ -65,13 +66,13 @@ Los datos salen de un solo lugar, `lib/site.js`:
   `tel:+526622055021`).
 - Correo: northadigital@gmail.com (`mailto:`).
 
-El sitio no tiene formulario ni guarda datos. Cada botón «Cuéntanos tu proyecto»
+El sitio no tiene formulario ni envía datos a ningún servidor. Cada botón «Cuéntanos tu proyecto»
 abre el asistente. Sin JavaScript, el mismo botón abre WhatsApp directamente.
 
 ## Asistente del sitio
 
 Asistente con respuestas automáticas. No es inteligencia artificial ni atención en
-tiempo real, y lo dice en el panel. Hace pocas preguntas, con opciones claras:
+tiempo real, y lo aclara si se le pregunta. Hace pocas preguntas, con opciones claras:
 
 1. «¿Buscas un portal municipal, una página web o algún sistema digital?». Si el
    visitante no sabe, pregunta si es para un municipio, un negocio o un proyecto
@@ -122,7 +123,8 @@ public/portafolio/   portada del portal de Mazatán (sin menú ni escudo)
 
 Agrega una entrada en `enlaces` dentro de `lib/content/proyectos.js` con el nombre,
 la dirección del portal publicado y su color institucional (el tono dominante de su
-escudo o logotipo oficial). Solo portales reales y en línea. Las imágenes de
+escudo o logotipo que usa su propio portal, provisional en varios casos). Solo
+portales reales y en línea. Las imágenes de
 terceros, como los escudos municipales, solo se usan con permiso y con su crédito.
 
 ## Desarrollo

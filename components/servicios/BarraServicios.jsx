@@ -19,7 +19,8 @@ const COPIAS = 4;
  * e iOS.
  *
  * Accesibilidad (WCAG 2.2.2): botón de pausa siempre visible, y la banda se
- * detiene al pasar el puntero, al enfocar un botón o al tocarla. Las copias
+ * detiene al pasar el puntero, al enfocar un botón, al tocarla y fuera de
+ * pantalla. Con teclado, la pista vuelve al inicio para que el foco se vea. Las copias
  * de relleno responden al clic y al toque (son las que se ven casi siempre),
  * pero no se leen ni entran en el orden del teclado. Con movimiento reducido, la banda
  * queda quieta y centrada, sin rebote ni pausa. En móvil va más lenta y con
@@ -28,9 +29,28 @@ const COPIAS = 4;
 export function BarraServicios() {
   const [pausada, setPausada] = useState(false);
   const [tocada, setTocada] = useState(false);
+  const [fuera, setFuera] = useState(false);
   const timer = useRef(null);
+  const raiz = useRef(null);
 
-  useEffect(() => () => clearTimeout(timer.current), []);
+  // Fuera de pantalla, la banda se detiene: no gasta cuadros que nadie ve.
+  useEffect(() => {
+    const io = new IntersectionObserver(([e]) => setFuera(!e.isIntersecting));
+    if (raiz.current) io.observe(raiz.current);
+    return () => {
+      io.disconnect();
+      clearTimeout(timer.current);
+    };
+  }, []);
+
+  // Con teclado, la pista vuelve al inicio (CSS) y el botón enfocado entra en
+  // la ventana si no cabe; al salir, la ventana vuelve a su sitio.
+  const alEnfocar = (e) => {
+    if (e.target.matches?.(":focus-visible")) e.target.scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
+  const alSalir = (e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.scrollLeft = 0;
+  };
 
   // Un toque detiene la banda unos segundos para poder elegir con calma.
   const alTocar = (e) => {
@@ -41,8 +61,12 @@ export function BarraServicios() {
   };
 
   return (
-    <div className={cn("banda", (pausada || tocada) && "is-pausada")} onPointerDown={alTocar}>
-      <div className="banda-ventana">
+    <div
+      ref={raiz}
+      className={cn("banda", (pausada || tocada) && "is-pausada", fuera && "is-fuera")}
+      onPointerDown={alTocar}
+    >
+      <div className="banda-ventana" onFocus={alEnfocar} onBlur={alSalir}>
         <div className="banda-pista">
           {Array.from({ length: COPIAS }, (_, copia) => (
             <ul
@@ -73,7 +97,6 @@ export function BarraServicios() {
       <button
         type="button"
         className="banda-pausa"
-        aria-pressed={pausada}
         onClick={() => setPausada((v) => !v)}
         aria-label={pausada ? "Reanudar el movimiento de los servicios" : "Pausar el movimiento de los servicios"}
       >

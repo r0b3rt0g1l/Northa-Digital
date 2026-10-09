@@ -17,8 +17,9 @@ const sinGuion = (t) => t.replace(/­/g, "");
  *    portal cuando existe en el proyecto (Mazatán) y, si no, un diseño de
  *    respaldo con su color institucional (ver lib/content/proyectos.js).
  *  - Cambia solo cada 2,6 s con una transición vertical corta, como una pila
- *    de widgets. Se detiene al pasar el puntero o enfocar el bloque, fuera de
- *    pantalla, con la pestaña oculta y con su botón de pausa (WCAG 2.2.2).
+ *    de widgets. Se detiene al pasar el puntero o enfocar el bloque, unos
+ *    segundos tras deslizar, fuera de pantalla, con la pestaña oculta y con su
+ *    botón de pausa (WCAG 2.2.2).
  *  - Pasar el puntero o enfocar un municipio de la lista lo muestra en el
  *    widget. En pantallas táctiles se puede deslizar para avanzar.
  *  - Con movimiento reducido no avanza solo ni se desliza: cambia al elegir.
@@ -32,11 +33,16 @@ export function Municipios({ enlaces, imagen }) {
 
   const [activo, setActivo] = useState(0);
   const [pausado, setPausado] = useState(false); // por el visitante (botón)
-  const [enEspera, setEnEspera] = useState(false); // puntero o foco encima
+  // Esperas: puntero encima, foco dentro (salvo en el botón de pausa) y unos
+  // segundos tras deslizar en táctil. Cada una se lleva por separado.
+  const [puntero, setPuntero] = useState(false);
+  const [foco, setFoco] = useState(false);
+  const [deslizado, setDeslizado] = useState(false);
   const [visible, setVisible] = useState(false);
   const [reducido, setReducido] = useState(false);
   const raizRef = useRef(null);
   const toque = useRef(null);
+  const espera = useRef(null);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -48,23 +54,21 @@ export function Municipios({ enlaces, imagen }) {
     return () => {
       mq.removeEventListener?.("change", leer);
       io.disconnect();
+      clearTimeout(espera.current);
     };
   }, []);
 
-  const avanza = !pausado && !enEspera && visible && !reducido;
+  const avanza = !pausado && !puntero && !foco && !deslizado && visible && !reducido;
 
+  // Cada cambio, también el manual, cuenta 2,6 s completos.
   useEffect(() => {
     if (!avanza) return;
-    let t = null;
-    const programar = () => {
-      t = setTimeout(() => {
-        if (!document.hidden) setActivo((i) => (i + 1) % total);
-        programar();
-      }, INTERVALO);
-    };
-    programar();
+    const t = setTimeout(function paso() {
+      if (document.hidden) return void setTimeout(paso, INTERVALO);
+      setActivo((i) => (i + 1) % total);
+    }, INTERVALO);
     return () => clearTimeout(t);
-  }, [avanza, total]);
+  }, [avanza, total, activo]);
 
   const ir = (i) => setActivo((i + total) % total);
   const indiceDe = (e) => orden.indexOf(e);
@@ -82,6 +86,10 @@ export function Municipios({ enlaces, imagen }) {
     const dy = e.clientY - t.y;
     if (Math.max(Math.abs(dx), Math.abs(dy)) < 40) return;
     ir(activo + ((Math.abs(dx) > Math.abs(dy) ? dx : dy) < 0 ? 1 : -1));
+    // Tras deslizar, el municipio elegido se queda unos segundos.
+    setDeslizado(true);
+    clearTimeout(espera.current);
+    espera.current = setTimeout(() => setDeslizado(false), 3500);
   };
 
   const actual = orden[activo];
@@ -90,11 +98,11 @@ export function Municipios({ enlaces, imagen }) {
     <div
       ref={raizRef}
       className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_1fr] lg:items-start lg:gap-8"
-      onPointerEnter={(e) => e.pointerType === "mouse" && setEnEspera(true)}
-      onPointerLeave={(e) => e.pointerType === "mouse" && setEnEspera(false)}
-      onFocus={() => setEnEspera(true)}
+      onPointerEnter={(e) => e.pointerType === "mouse" && setPuntero(true)}
+      onPointerLeave={(e) => e.pointerType === "mouse" && setPuntero(false)}
+      onFocus={(e) => setFoco(!e.target.closest(".widget-pausa"))}
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) setEnEspera(false);
+        if (!e.currentTarget.contains(e.relatedTarget)) setFoco(false);
       }}
     >
       <figure className="m-0 flex flex-col gap-3">
@@ -129,7 +137,9 @@ export function Municipios({ enlaces, imagen }) {
                       alt={imagen.alt}
                       width={imagen.width}
                       height={imagen.height}
-                      sizes="(min-width: 1240px) 660px, (min-width: 1024px) 54vw, 100vw"
+                      // Se pinta con object-fit: cover en una caja más alta que la foto,
+                      // así que su ancho real es 2,4-3,3 veces el del widget.
+                      sizes="(min-width: 1240px) 1520px, (min-width: 1024px) 118vw, (min-width: 640px) 240vw, 330vw"
                       loading="lazy"
                       className="widget-foto"
                     />
@@ -169,7 +179,6 @@ export function Municipios({ enlaces, imagen }) {
             <button
               type="button"
               className="widget-pausa"
-              aria-pressed={pausado}
               onClick={() => setPausado((v) => !v)}
               aria-label={pausado ? "Reanudar el carrusel de municipios" : "Pausar el carrusel de municipios"}
             >
