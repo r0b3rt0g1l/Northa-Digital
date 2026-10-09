@@ -1308,6 +1308,11 @@
   .widget-pausa:hover {
     background: rgba(9, 12, 17, 0.8);
   }
+  /* El icono cambia al pulsar: que el puntero quede siempre sobre el botón. */
+  .widget-pausa svg,
+  .banda-pausa svg {
+    pointer-events: none;
+  }
   @media (max-width: 420px) {
     .widget-puntos {
       display: none;

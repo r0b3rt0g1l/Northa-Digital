@@ -58,6 +58,21 @@ export function Municipios({ enlaces, imagen }) {
     };
   }, []);
 
+  // Puntero encima, con eventos nativos: el onPointerLeave de React se pierde
+  // si el nodo bajo el puntero cambia (el icono del botón de pausa).
+  useEffect(() => {
+    const el = raizRef.current;
+    if (!el) return;
+    const entra = (e) => e.pointerType === "mouse" && setPuntero(true);
+    const sale = (e) => e.pointerType === "mouse" && setPuntero(false);
+    el.addEventListener("pointerenter", entra);
+    el.addEventListener("pointerleave", sale);
+    return () => {
+      el.removeEventListener("pointerenter", entra);
+      el.removeEventListener("pointerleave", sale);
+    };
+  }, []);
+
   const avanza = !pausado && !puntero && !foco && !deslizado && visible && !reducido;
 
   // Cada cambio, también el manual, cuenta 2,6 s completos.
@@ -98,8 +113,6 @@ export function Municipios({ enlaces, imagen }) {
     <div
       ref={raizRef}
       className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_1fr] lg:items-start lg:gap-8"
-      onPointerEnter={(e) => e.pointerType === "mouse" && setPuntero(true)}
-      onPointerLeave={(e) => e.pointerType === "mouse" && setPuntero(false)}
       onFocus={(e) => setFoco(!e.target.closest(".widget-pausa"))}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) setFoco(false);
