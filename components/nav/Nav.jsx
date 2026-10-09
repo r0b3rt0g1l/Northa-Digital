@@ -1,26 +1,32 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { ChevronDown, Menu, ShieldCheck, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Logo } from "@/components/ui/Logo";
-import { Button } from "@/components/ui/Button";
+import { BotonConsulta } from "@/components/ui/BotonConsulta";
 import { useScrollSpy } from "@/hooks/useScrollSpy";
 import { navSections, ctaPrincipal } from "@/lib/content/nav";
+import { servicios, seguridad } from "@/lib/content/servicios";
+import { abrirAsistente } from "@/lib/acciones";
+import { MenuServicios } from "./MenuServicios";
 
-// "empezar" es el cierre: también responde a "¿cómo contactar?".
-const SPY_IDS = ["inicio", "servicios", "contacto", "portafolio", "empezar"];
-const ALIAS = { empezar: "contacto" };
+const SPY_IDS = ["inicio", "servicios", "seguridad", "portafolio", "final", "contacto"];
+// Seguridad es parte de la oferta; la escena final lleva al contacto del pie.
+const ALIAS = { seguridad: "servicios", final: "contacto" };
 
 /**
- * Barra fija en cápsula de vidrio: marca, tres enlaces y el CTA principal.
- * Al hacer scroll gana contraste y blur. Menú móvil accesible: se cierra con
- * Escape (devolviendo el foco al botón), al tocar fuera, al perder el foco,
- * al desplazarse y al elegir un enlace.
+ * Barra fija en cápsula de vidrio: marca, el menú de servicios, dos enlaces
+ * y el CTA principal (con el ícono de WhatsApp), que abre el asistente en la
+ * consulta guiada. Al hacer scroll gana contraste y blur. Menú móvil
+ * accesible: «Servicios» se despliega dentro; se cierra con Escape
+ * (devolviendo el foco al botón), al tocar fuera, al perder el foco, al
+ * desplazarse y al elegir una opción.
  */
 export function Nav() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
+  const [serviciosMovil, setServiciosMovil] = useState(false);
   const spy = useScrollSpy(SPY_IDS);
   const activeId = ALIAS[spy] ?? spy;
   const headerRef = useRef(null);
@@ -40,16 +46,20 @@ export function Nav() {
     const startY = window.scrollY;
     const close = (returnFocus = false) => {
       setOpen(false);
+      setServiciosMovil(false);
       if (returnFocus) toggleRef.current?.focus();
     };
     const onKey = (e) => {
-      if (e.key === "Escape") close(true);
+      if (e.key === "Escape") {
+        e.stopPropagation(); // el mismo Escape no cierra también el asistente
+        close(true);
+      }
     };
     const onPointer = (e) => {
       if (!headerRef.current?.contains(e.target)) close();
     };
     const onFocus = (e) => {
-      if (!headerRef.current?.contains(e.target)) close();
+      if (!headerRef.current?.contains(e.target) && !e.target.closest?.("[data-asistente]")) close();
     };
     const onScroll = () => {
       if (Math.abs(window.scrollY - startY) > 40) close();
@@ -71,8 +81,25 @@ export function Nav() {
     };
   }, [open]);
 
+  const cerrarMenu = () => {
+    setOpen(false);
+    setServiciosMovil(false);
+  };
+
+  // Al abrir el asistente desde el menú móvil, el foco pasa antes al botón
+  // del menú: al cerrar el asistente, vuelve ahí.
+  const consultarMovil = (servicio) => {
+    cerrarMenu();
+    toggleRef.current?.focus();
+    abrirAsistente({ modo: "consulta", servicio });
+  };
+
   return (
-    <header ref={headerRef} className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-6 sm:pt-4">
+    <header
+      ref={headerRef}
+      // Con un menú abierto, la barra queda por encima del asistente.
+      className="fixed inset-x-0 top-0 z-50 px-3 pt-3 has-[[aria-expanded=true]]:z-[70] sm:px-6 sm:pt-4"
+    >
       <nav
         aria-label="Navegación principal"
         className={cn(
@@ -87,39 +114,45 @@ export function Nav() {
         </a>
 
         <ul className="m-0 hidden list-none items-center gap-1 p-0 md:flex">
-          {navSections.map((s) => {
-            const isActive = activeId === s.id;
-            return (
-              <li key={s.id}>
-                <a
-                  href={s.href}
-                  aria-current={isActive ? "true" : undefined}
-                  className={cn(
-                    "relative inline-flex h-11 items-center rounded-full px-4 text-sm font-medium transition-colors",
-                    isActive ? "text-text" : "text-text-2 hover:text-text",
-                  )}
-                >
-                  {s.label}
-                  <span
-                    aria-hidden="true"
+          <li>
+            <MenuServicios activo={activeId === "servicios"} />
+          </li>
+          {navSections
+            .filter((s) => s.id !== "servicios")
+            .map((s) => {
+              const isActive = activeId === s.id;
+              return (
+                <li key={s.id}>
+                  <a
+                    href={s.href}
+                    aria-current={isActive ? "true" : undefined}
                     className={cn(
-                      "absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-accent transition-opacity",
-                      isActive ? "opacity-100" : "opacity-0",
+                      "relative inline-flex h-11 items-center rounded-full px-4 text-sm font-medium transition-colors md:px-3 lg:px-4",
+                      isActive ? "text-text" : "text-text-2 hover:text-text",
                     )}
-                  />
-                </a>
-              </li>
-            );
-          })}
+                  >
+                    {s.label}
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-accent transition-opacity",
+                        isActive ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                  </a>
+                </li>
+              );
+            })}
         </ul>
 
         <div className="flex items-center gap-1.5">
-          <Button href={ctaPrincipal.href} size="sm" className="hidden sm:inline-flex">
+          <BotonConsulta icono size="sm" className="hidden whitespace-nowrap pl-2.5 sm:inline-flex">
             {ctaPrincipal.label}
-          </Button>
-          <Button href={ctaPrincipal.href} size="sm" magnetic={false} className="px-4 sm:hidden">
-            {ctaPrincipal.short}
-          </Button>
+          </BotonConsulta>
+          {/* Por debajo de 350 px solo queda el ícono, para que quepa el menú. */}
+          <BotonConsulta icono size="sm" magnetic={false} className="pl-2 pr-4 max-[349px]:pr-2 sm:hidden">
+            <span className="max-[349px]:sr-only">{ctaPrincipal.short}</span>
+          </BotonConsulta>
           <button
             ref={toggleRef}
             type="button"
@@ -127,7 +160,7 @@ export function Nav() {
             aria-expanded={open}
             aria-controls="menu-movil"
             aria-label={open ? "Cerrar menú" : "Abrir menú"}
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => (open ? cerrarMenu() : setOpen(true))}
           >
             {open ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
           </button>
@@ -135,30 +168,101 @@ export function Nav() {
       </nav>
 
       {open ? (
-        <div id="menu-movil" className="glass-strong mx-auto mt-2 w-full max-w-[1200px] rounded-[24px] p-3 md:hidden">
+        <div
+          id="menu-movil"
+          className="menu-movil glass-strong mx-auto mt-2 max-h-[calc(100svh-96px)] w-full max-w-[1200px] overflow-y-auto overscroll-contain rounded-[24px] p-3 md:hidden"
+        >
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
-            {navSections.map((s, i) => (
-              <li key={s.id}>
-                <a
-                  ref={i === 0 ? firstLinkRef : undefined}
-                  href={s.href}
-                  onClick={() => setOpen(false)}
-                  aria-current={activeId === s.id ? "true" : undefined}
-                  className={cn(
-                    "flex min-h-[52px] items-center rounded-2xl px-4 text-base font-medium transition-colors",
-                    activeId === s.id
-                      ? "bg-white/[0.06] text-text"
-                      : "text-text-2 hover:bg-white/[0.05] hover:text-text",
-                  )}
-                >
-                  {s.label}
-                </a>
-              </li>
-            ))}
+            <li>
+              <button
+                ref={firstLinkRef}
+                type="button"
+                aria-expanded={serviciosMovil}
+                aria-controls="menu-movil-servicios"
+                onClick={() => setServiciosMovil((v) => !v)}
+                className={cn(
+                  "flex min-h-[52px] w-full items-center justify-between rounded-2xl px-4 text-base font-medium transition-colors",
+                  activeId === "servicios" || serviciosMovil
+                    ? "bg-white/[0.06] text-text"
+                    : "text-text-2 hover:bg-white/[0.05] hover:text-text",
+                )}
+              >
+                Servicios
+                <ChevronDown
+                  className={cn("h-4 w-4 transition-transform duration-300", serviciosMovil && "rotate-180")}
+                  aria-hidden="true"
+                />
+              </button>
+              <ul
+                id="menu-movil-servicios"
+                hidden={!serviciosMovil}
+                className="m-0 mt-1 grid list-none grid-cols-1 gap-1 p-0 pl-2"
+              >
+                {servicios.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      onClick={() => consultarMovil(s.id)}
+                      className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-[15px] text-text-2 hover:bg-white/[0.05] hover:text-text"
+                    >
+                      <s.Icon className="h-[18px] w-[18px] shrink-0 text-accent-2" strokeWidth={1.6} aria-hidden="true" />
+                      {s.title}
+                    </button>
+                  </li>
+                ))}
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => consultarMovil(seguridad.id)}
+                    className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-accent/30 bg-accent/[0.07] px-3 text-left text-[15px] text-text hover:bg-accent/[0.12]"
+                  >
+                    <ShieldCheck className="h-[18px] w-[18px] shrink-0 text-accent-2" strokeWidth={1.6} aria-hidden="true" />
+                    {seguridad.title}
+                  </button>
+                </li>
+                <li>
+                  {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+                  <a
+                    href="/#servicios"
+                    onClick={cerrarMenu}
+                    className="flex min-h-12 items-center rounded-xl px-3 text-[14px] font-medium text-muted hover:text-text"
+                  >
+                    Ver la sección de servicios
+                  </a>
+                </li>
+              </ul>
+            </li>
+            {navSections
+              .filter((s) => s.id !== "servicios")
+              .map((s) => (
+                <li key={s.id}>
+                  <a
+                    href={s.href}
+                    onClick={cerrarMenu}
+                    aria-current={activeId === s.id ? "true" : undefined}
+                    className={cn(
+                      "flex min-h-[52px] items-center rounded-2xl px-4 text-base font-medium transition-colors",
+                      activeId === s.id
+                        ? "bg-white/[0.06] text-text"
+                        : "text-text-2 hover:bg-white/[0.05] hover:text-text",
+                    )}
+                  >
+                    {s.label}
+                  </a>
+                </li>
+              ))}
             <li className="mt-2">
-              <Button href={ctaPrincipal.href} className="w-full" magnetic={false} onClick={() => setOpen(false)}>
+              <BotonConsulta
+                icono
+                className="w-full"
+                magnetic={false}
+                onAbrir={() => {
+                  cerrarMenu();
+                  toggleRef.current?.focus();
+                }}
+              >
                 {ctaPrincipal.label}
-              </Button>
+              </BotonConsulta>
             </li>
           </ul>
         </div>

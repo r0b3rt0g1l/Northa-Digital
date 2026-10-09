@@ -1,12 +1,12 @@
-import { Button } from "@/components/ui/Button";
 import { HeroSenal } from "./HeroSenal";
 import { hero } from "@/lib/content/hero";
-import { ctaPrincipal } from "@/lib/content/nav";
 
 /**
  * Hero: ¿qué hacemos? Una sola idea, centrada bajo una señal de luz.
- * Entrada breve: halo y señal, etiqueta, titular, subtítulo y botones.
- * El titular no espera: es el elemento principal de la primera pintura.
+ * Entrada breve: halo y señal, etiqueta, titular y subtítulo. Abajo, un
+ * indicador invita a seguir: es un enlace a la siguiente sección y nunca
+ * desplaza la página por su cuenta. El titular no espera: es el elemento
+ * principal de la primera pintura.
  */
 export function Hero() {
   return (
@@ -37,16 +37,18 @@ export function Hero() {
         >
           {hero.subtitulo}
         </p>
-        <div
-          className="hero-in mt-2 flex w-full flex-col justify-center gap-3 sm:w-auto sm:flex-row"
-          style={{ "--d": "320ms" }}
-        >
-          <Button href={ctaPrincipal.href}>{ctaPrincipal.label}</Button>
-          <Button href={hero.ctaSecundario.href} variant="secondary">
-            {hero.ctaSecundario.label}
-          </Button>
-        </div>
       </div>
+
+      {/* Ancla dentro de la página; desde la 404 lleva al inicio. */}
+      {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+      <a
+        href="/#servicios"
+        className="indicador hero-in absolute bottom-7 left-1/2 -translate-x-1/2 rounded-full px-3 py-2 sm:bottom-9"
+        style={{ "--d": "700ms" }}
+      >
+        <span className="indicador-raton" aria-hidden="true" />
+        Explorar
+      </a>
     </section>
   );
 }

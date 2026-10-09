@@ -2,15 +2,34 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { Mail, Phone } from "lucide-react";
 import { StarIcon } from "@/components/ui/StarIcon";
+import { WhatsAppIcon } from "@/components/ui/WhatsAppIcon";
 import { EVENTO_ASISTENTE } from "@/lib/acciones";
-import { site } from "@/lib/site";
+import { site, whatsappConTexto } from "@/lib/site";
 
 // El panel se descarga solo cuando alguien lo abre (o pasa por el botón).
 const cargarPanel = () => import("./AsistentePanel");
 const precargar = () => {
   cargarPanel().catch(() => {});
 };
+
+const marco =
+  "glass-strong panel-opaco fixed inset-x-3 bottom-3 z-[60] flex flex-col gap-4 rounded-[24px] p-5 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[420px]";
+
+/** Mientras se descarga el panel: un aviso breve en su lugar. */
+function PanelCargando() {
+  return (
+    <div className={marco} role="status" aria-live="polite" data-asistente="">
+      <div className="flex items-center gap-3">
+        <span className="cargando grid h-10 w-10 place-items-center rounded-[12px] border border-line-strong">
+          <StarIcon className="h-5 w-5" />
+        </span>
+        <p className="m-0 text-[14.5px] text-text-2">Abriendo el asistente…</p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Si el panel no se puede descargar (sin conexión o tras un despliegue
@@ -31,7 +50,7 @@ function PanelRespaldo({ onCerrar }) {
       aria-modal="false"
       aria-labelledby="asistente-respaldo-titulo"
       data-asistente=""
-      className="glass-strong fixed inset-x-3 bottom-3 z-[60] flex flex-col gap-4 rounded-[24px] p-5 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[400px]"
+      className={marco}
     >
       <div className="flex items-start justify-between gap-3">
         <h2 id="asistente-respaldo-titulo" className="text-[15px]">
@@ -46,23 +65,33 @@ function PanelRespaldo({ onCerrar }) {
           <span aria-hidden="true">✕</span>
         </button>
       </div>
-      <p className="m-0 text-[14.5px] text-text-2">
+      <p className="m-0 text-[14.5px] text-text-2" role="alert">
         No pudimos cargar el asistente. Escríbenos y te respondemos directamente.
       </p>
       <div className="flex flex-wrap gap-2">
         <a
-          href={site.contact.whatsappHref}
+          href={whatsappConTexto()}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex min-h-11 items-center rounded-full bg-text px-4 text-sm font-semibold text-bg"
+          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-text px-4 text-sm font-semibold text-bg"
         >
+          <WhatsAppIcon className="h-4 w-4 text-[#128C7E]" />
           Escribir por WhatsApp
+          <span className="sr-only"> (se abre en una pestaña nueva)</span>
+        </a>
+        <a
+          href={site.contact.phoneHref}
+          className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line-strong px-4 text-sm font-medium text-text"
+        >
+          <Phone className="h-4 w-4" aria-hidden="true" />
+          {site.contact.phoneDisplay}
         </a>
         <a
           href={site.contact.emailHref}
-          className="inline-flex min-h-11 items-center rounded-full border border-line-strong px-4 text-sm font-medium text-text"
+          className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line-strong px-4 text-sm font-medium text-text"
         >
-          Enviar correo
+          <Mail className="h-4 w-4" aria-hidden="true" />
+          {site.contact.email}
         </a>
       </div>
     </div>
@@ -71,23 +100,27 @@ function PanelRespaldo({ onCerrar }) {
 
 const AsistentePanel = dynamic(
   () => cargarPanel().catch(() => ({ default: PanelRespaldo })),
-  { ssr: false, loading: () => null },
+  { ssr: false, loading: () => <PanelCargando /> },
 );
 
 /**
- * Asistente del sitio: un botón discreto abajo a la derecha que abre un
- * panel de conversación. Se puede abrir también desde cualquier botón de la
- * página (evento northa:asistente). No bloquea la navegación ni pide datos.
+ * Asistente del sitio: un botón discreto abajo a la derecha que abre el panel
+ * de consulta guiada. También se abre desde cualquier botón de la página
+ * (evento northa:asistente), con un modo y un servicio ya elegidos. Al
+ * cerrarse devuelve el foco al elemento que lo abrió.
  */
 export function Asistente() {
   const [abierto, setAbierto] = useState(false);
-  const [pregunta, setPregunta] = useState(null);
+  const [peticion, setPeticion] = useState(null);
   const lanzadorRef = useRef(null);
+  const origenRef = useRef(null);
 
   useEffect(() => {
     const onAbrir = (e) => {
       precargar();
-      setPregunta(e.detail?.pregunta || null);
+      const activo = document.activeElement;
+      if (activo instanceof HTMLElement && !activo.closest("[data-asistente]")) origenRef.current = activo;
+      setPeticion(e.detail && Object.keys(e.detail).length ? { ...e.detail } : null);
       setAbierto(true);
     };
     window.addEventListener(EVENTO_ASISTENTE, onAbrir);
@@ -96,7 +129,14 @@ export function Asistente() {
 
   const cerrar = useCallback((devolverFoco = true) => {
     setAbierto(false);
-    if (devolverFoco) requestAnimationFrame(() => lanzadorRef.current?.focus());
+    if (!devolverFoco) return;
+    const origen = origenRef.current;
+    origenRef.current = null;
+    requestAnimationFrame(() => {
+      // Si el elemento de origen ya no está visible (menú cerrado), vuelve al lanzador.
+      const destino = origen?.isConnected && origen.getClientRects().length ? origen : lanzadorRef.current;
+      destino?.focus();
+    });
   }, []);
 
   return (
@@ -111,7 +151,10 @@ export function Asistente() {
         aria-label="Abrir asistente del sitio"
         onPointerEnter={precargar}
         onFocus={precargar}
-        onClick={() => setAbierto(true)}
+        onClick={() => {
+          origenRef.current = lanzadorRef.current;
+          setAbierto(true);
+        }}
         style={{ "--d": "900ms" }}
         className={
           "glass glass-hover lanzador-in fixed bottom-4 right-4 z-[55] inline-flex h-12 items-center gap-2.5 rounded-full text-sm font-medium text-text max-sm:w-12 max-sm:justify-center sm:bottom-6 sm:right-6 sm:pl-3.5 sm:pr-5" +
@@ -123,11 +166,7 @@ export function Asistente() {
       </button>
 
       {abierto ? (
-        <AsistentePanel
-          onCerrar={cerrar}
-          preguntaInicial={pregunta}
-          onPreguntaUsada={() => setPregunta(null)}
-        />
+        <AsistentePanel onCerrar={cerrar} peticion={peticion} onPeticionUsada={() => setPeticion(null)} />
       ) : null}
     </>
   );

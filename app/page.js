@@ -1,11 +1,12 @@
 import { Hero } from "@/components/hero/Hero";
 import { Servicios } from "@/components/servicios/Servicios";
-import { ContactoBloque } from "@/components/contacto/ContactoBloque";
+import { Seguridad } from "@/components/seguridad/Seguridad";
 import { Portafolio } from "@/components/portafolio/Portafolio";
-import { Cierre } from "@/components/cierre/Cierre";
+import { EscenaFinal } from "@/components/cierre/EscenaFinal";
 import { organizationJsonLd, websiteJsonLd } from "@/lib/jsonld";
 
-// Orden de scroll: hero → servicios → contacto (30 s) → portafolio → cierre.
+// Orden de scroll: hero → lo que construimos → seguridad → portafolio →
+// escena final. El contacto vive en el pie y en el asistente.
 export default function Home() {
   return (
     <>
@@ -21,9 +22,9 @@ export default function Home() {
       />
       <Hero />
       <Servicios />
-      <ContactoBloque />
+      <Seguridad />
       <Portafolio />
-      <Cierre />
+      <EscenaFinal />
     </>
   );
 }

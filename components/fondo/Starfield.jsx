@@ -4,44 +4,43 @@ import { useEffect, useRef } from "react";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 /**
- * Cielo de fondo pensado para parecer un cielo real:
- *  - todo el cielo gira en bloque alrededor de la señal del hero, la estrella
- *    polar de Northa, en sentido antihorario como el cielo del norte. Ninguna
- *    estrella se mueve respecto de las demás. Una vuelta cada 40 minutos: unas
- *    36 veces más rápido que el cielo real, lo justo para que se perciba;
- *  - brillo con ley de potencia: muchas estrellas apenas visibles y pocas
- *    brillantes;
- *  - temperatura de color: azuladas, blancas, cálidas y alguna anaranjada.
- *    El núcleo se satura a blanco y el color vive en el halo;
- *  - una franja muy tenue de Vía Láctea con polvo de estrellas y grietas;
- *  - centelleo irregular (tres ondas de periodos distintos). En las
- *    brillantes también cambia un poco el color, como cuando la atmósfera
- *    separa su luz;
- *  - destello de difracción de cuatro puntas en las brillantes, que se
- *    atenúan al pasar detrás de los textos marcados con [data-cielo-claro].
+ * Cielo de fondo pensado para sentirse espacial y real a la vez:
+ *  - todo el cielo gira alrededor de la señal del hero, la estrella polar de
+ *    Northa, en sentido antihorario como el cielo del norte. La capa lejana
+ *    da una vuelta cada 15 minutos; las capas media y cercana giran un poco
+ *    más rápido, y ese paralaje le da profundidad. El movimiento es continuo
+ *    y discreto: unos pocos píxeles por segundo;
+ *  - brillo con ley de potencia, temperatura de color, franja de Vía Láctea
+ *    con polvo y grietas, centelleo irregular y destellos de difracción en
+ *    las brillantes, que se atenúan detrás de los textos [data-cielo-claro].
  *
- * Lo fijo (franja, polvo y casi todas las estrellas) se pinta UNA vez en un
- * canvas cuadrado fuera de pantalla, centrado en el polo; en cada cuadro se
- * copia girado (un solo drawImage) y encima se pinta lo que centellea con la
- * misma rotación. Todo en un único canvas: girar una capa aparte obliga al
- * navegador a recomponerla en cada cuadro, y sin GPU eso cuesta el doble.
- * El polo es la posición de la señal con la página arriba: el cielo no se
- * desplaza con el scroll, como el real.
+ * Lo fijo se pinta UNA vez en un canvas fuera de pantalla centrado en el
+ * polo y se copia girado en cada cuadro; lo que centellea se pinta encima.
+ * Todo en un único canvas 2D: funciona igual en Chrome, Edge, Firefox y
+ * Safari, en Windows, macOS, Android e iOS.
  *
- * Intensidad por sección: 100 % en el hero y el cierre, 40 % detrás del
- * contenido. Solo se anima (y gira) mientras el hero o el cierre están en
- * pantalla; en el resto queda un cuadro fijo. 30 cuadros por segundo, DPR
- * máximo 1,5, pausa con la pestaña oculta y un cuadro estático con
- * prefers-reduced-motion o ahorro de datos. Si el equipo va justo, reduce
- * densidad y cuadros por segundo.
+ * Intensidad: 100 % en el hero y la escena final, 40 % detrás del contenido.
+ * Ritmo: 30 cuadros por segundo en el hero y la escena final, 15 detrás del
+ * contenido, pausa con la pestaña oculta. DPR máximo 1,5. Si los cuadros
+ * llegan tarde de forma sostenida, baja a DPR 1, menos estrellas y 20 cuadros
+ * por segundo, y detrás del contenido se queda quieto. Con
+ * prefers-reduced-motion o ahorro de datos, un cuadro fijo.
  */
 
 const ALTA = 1;
 const BAJA = 0.4;
-const SECCIONES_ALTAS = ["inicio", "empezar"];
+const SECCIONES_ALTAS = ["inicio", "final"];
 const TAU = Math.PI * 2;
-const VUELTA = 40 * 60 * 1000; // ms por vuelta completa
+const VUELTA = 15 * 60 * 1000; // ms por vuelta completa de la capa lejana
 const OMEGA = TAU / VUELTA; // radianes por ms
+// Profundidad: las capas cercanas giran un poco más rápido que la lejana,
+// como en un paralaje, y el cielo se siente con volumen.
+const PARALAJE_MEDIO = 1.14;
+const PARALAJE_CERCANO = 1.32;
+// Cuadros por segundo según la zona: pleno en el hero y la escena final, más
+// pausado detrás del contenido y mínimo con movimiento reducido.
+const FPS_ALTA = 30;
+const FPS_BAJA = 15;
 const MARGEN = 160; // px de cielo de sobra alrededor de la ventana
 const MAX_PIXELES = 8e6; // tope de la capa fija en píxeles reales (~32 MB)
 
@@ -146,12 +145,16 @@ export function Starfield() {
     if (!canvas || !ctx) return;
 
     const ahorro = navigator.connection?.saveData === true;
+    // Con movimiento reducido o ahorro de datos: un cuadro fijo. En el resto:
+    // giro y centelleo.
     const animar = !reduced && !ahorro;
+    const girar = animar;
     const movil = () => window.matchMedia("(max-width: 768px)").matches;
 
     let vivo = true;
-    let frame = 1000 / 30;
+    let frame = 1000 / FPS_ALTA;
     let factor = 1; // 1 o 0.5 si el equipo va justo
+    let dprMax = 1.5; // 1 si el equipo va justo
     let width = 0;
     let height = 0;
     let dpr = 1;
@@ -166,6 +169,7 @@ export function Starfield() {
     let intensidad = ALTA;
     let objetivo = ALTA;
     let rafId = null;
+    let timerCuadro = null;
     let ultimo = 0;
     let previo = 0;
     const tiempos = [];
@@ -174,16 +178,18 @@ export function Starfield() {
     const puntas = COLORES.map(([, c]) => spritePuntas(c));
 
     // 1 en reposo; baja hasta 1 - amp sin repetirse. Sin animación, el promedio.
-    const brillo = (s, t) =>
-      animar
-        ? 1 -
-          s.amp *
-            (0.5 +
-              0.5 *
-                (0.55 * Math.sin(t * s.f1 + s.p1) +
-                  0.3 * Math.sin(t * s.f2 + s.p2) +
-                  0.15 * Math.sin(t * s.f3 + s.p3)))
-        : 1 - s.amp * 0.5;
+    // Con movimiento reducido solo quedan las ondas lentas y la mitad de amplitud.
+    const brillo = (s, t) => {
+      if (!animar) return 1 - s.amp * 0.5;
+      if (!girar) return 1 - s.amp * 0.5 * (0.5 + 0.5 * (0.65 * Math.sin(t * s.f1 + s.p1) + 0.35 * Math.sin(t * s.f2 + s.p2)));
+      return (
+        1 -
+        s.amp *
+          (0.5 +
+            0.5 *
+              (0.55 * Math.sin(t * s.f1 + s.p1) + 0.3 * Math.sin(t * s.f2 + s.p2) + 0.15 * Math.sin(t * s.f3 + s.p3)))
+      );
+    };
 
     // Centro de la señal en coordenadas del documento, sin transformaciones
     // de la animación de entrada ni del parallax.
@@ -381,25 +387,29 @@ export function Starfield() {
       ctx.drawImage(fijo, -radio, -radio, radio * 2, radio * 2);
       ctx.restore();
 
-      const cos = Math.cos(angulo);
-      const sin = Math.sin(angulo);
       const scroll = window.scrollY;
-      const punto = (s, borde) => {
+      const giro = (factorCapa) => {
+        const a = angulo * factorCapa;
+        return [Math.cos(a), Math.sin(a)];
+      };
+      const punto = ([cos, sin], s, borde) => {
         const x = polo.x + s.dx * cos - s.dy * sin;
         const y = polo.y + s.dx * sin + s.dy * cos;
         return x < -borde || y < -borde || x > width + borde || y > height + borde ? null : [x, y];
       };
 
+      const capaMedia = giro(PARALAJE_MEDIO);
       for (const lista of [titilan, medias]) {
         for (const s of lista) {
-          const p = punto(s, 8);
+          const p = punto(capaMedia, s, 8);
           if (!p) continue;
           ctx.globalAlpha = s.a * brillo(s, t) * intensidad;
           ctx.drawImage(puntos[s.c], p[0] - s.tam / 2, p[1] - s.tam / 2, s.tam, s.tam);
         }
       }
+      const capaCercana = giro(PARALAJE_CERCANO);
       for (const s of brillantes) {
-        const p = punto(s, s.largo);
+        const p = punto(capaCercana, s, s.largo);
         if (!p) continue;
         const [x, y] = p;
         const b = brillo(s, t);
@@ -413,7 +423,7 @@ export function Starfield() {
         ctx.globalAlpha = k * (0.7 + 0.3 * b);
         ctx.drawImage(puntos[s.c], x - s.tam / 2, y - s.tam / 2, s.tam, s.tam);
         // Centelleo de color: el núcleo vira un instante hacia otro tono.
-        if (animar) {
+        if (girar) {
           const tinte = Math.sin(t * s.fc + s.pc);
           if (tinte > 0.4) {
             const tam = s.tam * 1.25;
@@ -427,45 +437,84 @@ export function Starfield() {
 
     const mover = (dt) => {
       const seg = dt / 1000;
-      angulo = (angulo - OMEGA * dt) % TAU;
+      // Se acumula en un rango amplio para que las capas con paralaje no
+      // salten al dar la vuelta: el ángulo solo se reinicia cada 5 vueltas.
+      if (girar) angulo = (angulo - OMEGA * dt) % (TAU * 5);
       // Transición de intensidad suave (~0,8 s).
       intensidad += (objetivo - intensidad) * (1 - Math.exp(-seg / 0.25));
     };
 
-    const vigilarPresupuesto = (inicio) => {
-      if (factor < 1 || tiempos.length >= 60) return;
-      tiempos.push(performance.now() - inicio);
-      if (tiempos.length === 60) {
-        const p95 = [...tiempos].sort((a, b) => a - b)[56];
-        if (p95 > 4) {
+    // Vigila el ritmo real entre cuadros, que incluye el rasterizado del
+    // navegador. Se ignoran los primeros segundos (carga de la página) y los
+    // saltos sueltos (pestaña en segundo plano, una tarea larga): solo si la
+    // mayoría de los cuadros llega tarde de forma sostenida, baja la
+    // resolución del lienzo, la cantidad de estrellas y el ritmo.
+    let calentamiento = 90;
+    const vigilarPresupuesto = (intervalo) => {
+      if (factor < 1 || tiempos.length >= 90 || !(intervalo > 0) || intervalo > 250) return;
+      if (calentamiento > 0) {
+        calentamiento--;
+        return;
+      }
+      tiempos.push(intervalo);
+      if (tiempos.length === 90) {
+        const p75 = [...tiempos].sort((a, b) => a - b)[67];
+        if (p75 > frame * 1.5) {
           factor = 0.5;
           frame = 1000 / 20;
-          poblar();
+          dprMax = 1;
+          medir(true);
         }
       }
     };
 
-    const tick = (t) => {
-      rafId = requestAnimationFrame(tick);
-      if (ultimo && t - ultimo < frame - 2) return;
-      const dt = previo ? Math.min(t - previo, 100) : frame;
-      previo = t;
-      // Avanza en pasos exactos de `frame`: 30 cps reales a 60, 90, 120 o 144 Hz.
-      ultimo = ultimo ? Math.max(ultimo + frame, t - frame) : t;
-      const inicio = performance.now();
-      mover(dt);
-      dibujar(t);
-      vigilarPresupuesto(inicio);
-      // Fuera de hero y cierre, al terminar la transición queda un cuadro fijo.
-      if (objetivo === BAJA && Math.abs(intensidad - BAJA) < 0.005) {
-        intensidad = BAJA;
-        dibujar(t);
-        detener();
+    // Ritmo de cuadros según la zona visible.
+    const cadencia = () => {
+      if (objetivo === BAJA && Math.abs(intensidad - BAJA) < 0.005) return Math.max(frame, 1000 / FPS_BAJA);
+      return frame;
+    };
+
+    // Con ritmos bajos se espera con un temporizador en lugar de despertar en
+    // cada refresco de pantalla: menos trabajo para el navegador.
+    const programar = () => {
+      if (!vivo || document.hidden) return;
+      const c = cadencia();
+      if (c > 45) {
+        timerCuadro = setTimeout(() => {
+          timerCuadro = null;
+          rafId = requestAnimationFrame(tick);
+        }, c - 12);
+      } else {
+        rafId = requestAnimationFrame(tick);
       }
     };
 
+    function tick(t) {
+      rafId = null;
+      const c = cadencia();
+      if (ultimo && t - ultimo < c - 2) {
+        programar();
+        return;
+      }
+      const intervalo = previo ? t - previo : 0;
+      const dt = previo ? Math.min(intervalo, 150) : c;
+      previo = t;
+      // Avanza en pasos exactos de `c`: el mismo ritmo a 60, 90, 120 o 144 Hz.
+      ultimo = ultimo ? Math.max(ultimo + c, t - c) : t;
+      mover(dt);
+      dibujar(t);
+      if (c === frame) vigilarPresupuesto(intervalo);
+      if (objetivo === BAJA && Math.abs(intensidad - BAJA) < 0.005) {
+        intensidad = BAJA;
+        // En un equipo justo, detrás del contenido el cielo se queda quieto;
+        // vuelve a moverse al llegar al hero o a la escena final.
+        if (factor < 1) return;
+      }
+      programar();
+    }
+
     const arrancar = () => {
-      if (!animar || rafId != null || document.hidden) return;
+      if (!animar || rafId != null || timerCuadro != null || document.hidden) return;
       ultimo = 0;
       previo = 0;
       rafId = requestAnimationFrame(tick);
@@ -474,6 +523,10 @@ export function Starfield() {
       if (rafId != null) {
         cancelAnimationFrame(rafId);
         rafId = null;
+      }
+      if (timerCuadro != null) {
+        clearTimeout(timerCuadro);
+        timerCuadro = null;
       }
     }
 
@@ -489,7 +542,7 @@ export function Starfield() {
     const medir = (repoblar) => {
       width = window.innerWidth;
       height = window.innerHeight;
-      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      dpr = Math.min(window.devicePixelRatio || 1, dprMax);
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
       canvas.style.width = `${width}px`;
@@ -555,7 +608,7 @@ export function Starfield() {
 
     const onVisibility = () => {
       if (document.hidden) detener();
-      else if (objetivo === ALTA || Math.abs(intensidad - objetivo) > 0.005) arrancar();
+      else arrancar();
     };
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
