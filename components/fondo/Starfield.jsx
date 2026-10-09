@@ -23,7 +23,7 @@ import { useReducedMotion } from "@/hooks/useReducedMotion";
  * Ritmo: 30 cuadros por segundo en el hero y la escena final, 15 detrás del
  * contenido, pausa con la pestaña oculta. DPR máximo 1,5. Si los cuadros
  * llegan tarde de forma sostenida, baja a DPR 1, menos estrellas y 20 cuadros
- * por segundo, y detrás del contenido se queda quieto. Con
+ * por segundo; el movimiento sigue siendo constante. Con
  * prefers-reduced-motion o ahorro de datos, un cuadro fijo.
  */
 
@@ -504,12 +504,7 @@ export function Starfield() {
       mover(dt);
       dibujar(t);
       if (c === frame) vigilarPresupuesto(intervalo);
-      if (objetivo === BAJA && Math.abs(intensidad - BAJA) < 0.005) {
-        intensidad = BAJA;
-        // En un equipo justo, detrás del contenido el cielo se queda quieto;
-        // vuelve a moverse al llegar al hero o a la escena final.
-        if (factor < 1) return;
-      }
+      if (objetivo === BAJA && Math.abs(intensidad - BAJA) < 0.005) intensidad = BAJA;
       programar();
     }
 

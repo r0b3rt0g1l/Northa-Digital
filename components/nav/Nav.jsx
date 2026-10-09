@@ -11,9 +11,10 @@ import { servicios, seguridad } from "@/lib/content/servicios";
 import { abrirAsistente } from "@/lib/acciones";
 import { MenuServicios } from "./MenuServicios";
 
-const SPY_IDS = ["inicio", "servicios", "seguridad", "portafolio", "final", "contacto"];
-// Seguridad es parte de la oferta; la escena final lleva al contacto del pie.
-const ALIAS = { seguridad: "servicios", final: "contacto" };
+// Seguridad no marca ningún enlace (queda el último activo); la escena final
+// lleva al contacto del pie.
+const SPY_IDS = ["inicio", "servicios", "portafolio", "final", "contacto"];
+const ALIAS = { final: "contacto" };
 
 /**
  * Barra fija en cápsula de vidrio: marca, el menú de servicios, dos enlaces

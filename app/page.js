@@ -5,8 +5,9 @@ import { Portafolio } from "@/components/portafolio/Portafolio";
 import { EscenaFinal } from "@/components/cierre/EscenaFinal";
 import { organizationJsonLd, websiteJsonLd } from "@/lib/jsonld";
 
-// Orden de scroll: hero → lo que construimos → seguridad → portafolio →
-// escena final. El contacto vive en el pie y en el asistente.
+// Orden de scroll: hero → lo que construimos → portafolio → seguridad (la
+// pieza de confianza que invita a escribir) → escena final. El contacto vive
+// en el pie y en el asistente.
 export default function Home() {
   return (
     <>
@@ -22,8 +23,8 @@ export default function Home() {
       />
       <Hero />
       <Servicios />
-      <Seguridad />
       <Portafolio />
+      <Seguridad />
       <EscenaFinal />
     </>
   );

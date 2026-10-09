@@ -732,24 +732,6 @@
       translateY(-3px);
   }
 
-  /* ---------- Captura del portafolio: se acerca al entrar ---------- */
-  @supports (animation-timeline: view()) {
-    @media (prefers-reduced-motion: no-preference) {
-      .portada-scroll {
-        animation: portada linear both;
-        animation-timeline: view();
-        animation-range: entry 0% cover 45%;
-      }
-    }
-  }
-  @keyframes portada {
-    from {
-      transform: scale(1.14);
-    }
-    to {
-      transform: scale(1);
-    }
-  }
   /* ---------- Indicador para seguir explorando (hero) ----------
      Un enlace a la siguiente sección: nunca desplaza solo. */
   /* Menús y asistente: paneles con texto que se leen encima del contenido.
@@ -893,332 +875,449 @@
     }
   }
 
-  /* ---------- Barra de servicios: saltos secuenciales ----------
-     Compacta y quieta por defecto. Al entrar en pantalla las piezas entran
-     y saltan una tras otra dentro de la barra: dos olas y descansa (menos de
-     cinco segundos). Vuelve a ocurrir al regresar a la barra o al pasar el
-     puntero. Solo transform y opacity: estable en todos los navegadores. */
-  .barra {
-    position: relative;
-    border: 1px solid var(--color-line);
-    border-radius: 28px;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.01)),
-      rgba(14, 17, 22, 0.55);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    padding: 14px;
-  }
-  .barra-lista {
+  /* ---------- Beneficios (Lo que construimos) ---------- */
+  .beneficio {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 8px;
+    align-items: flex-start;
+    gap: 14px;
+    height: 100%;
+    padding: 18px 18px 18px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--color-line);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012)),
+      rgba(14, 17, 22, 0.62);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    transition:
+      border-color 0.3s ease,
+      translate 0.4s var(--ease-out);
+  }
+  .beneficio:hover {
+    border-color: rgba(127, 211, 255, 0.28);
+    translate: 0 -2px;
+  }
+  .beneficio-icono {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    border: 1px solid rgba(127, 211, 255, 0.3);
+    background: radial-gradient(circle at 30% 20%, rgba(127, 211, 255, 0.22), rgba(79, 140, 255, 0.06));
+    color: var(--color-accent-2);
+  }
+
+  /* ---------- Banda de servicios: recorrido continuo con rebote ----------
+     La pista lleva cuatro copias de la fila y avanza una copia (25 %) en
+     bucle; cada botón rebota con un retraso propio, como una ola. Se detiene
+     con el botón de pausa, al pasar el puntero, al enfocar un botón o al
+     tocarla. Solo transform, translate y scale: fluido en todos los
+     navegadores. */
+  .banda {
+    --duracion: 44s;
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .banda-ventana {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding-block: 18px 14px;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  }
+  .banda-pista {
+    display: flex;
+    width: max-content;
+    animation: banda-recorrido var(--duracion) linear infinite;
+  }
+  .banda-grupo {
+    display: flex;
+    flex-shrink: 0;
+    gap: 12px;
     margin: 0;
-    padding: 0;
+    padding: 0 12px 0 0;
     list-style: none;
   }
-  .barra-pieza {
+  .banda-pieza {
     display: inline-flex;
     align-items: center;
     gap: 9px;
-    min-height: 44px;
-    padding: 0 16px 0 12px;
+    min-height: 48px;
+    padding: 0 20px 0 15px;
     border-radius: 999px;
     border: 1px solid var(--color-line-strong);
-    background: rgba(255, 255, 255, 0.035);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+      rgba(16, 19, 25, 0.9);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.09),
+      0 12px 26px -16px rgba(0, 0, 0, 0.9);
     color: var(--color-text);
-    font-size: 14.5px;
+    font-size: 15px;
     font-weight: 600;
     letter-spacing: -0.01em;
+    white-space: nowrap;
+    animation: banda-rebote 2.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
+    animation-delay: calc(var(--i) * 0.32s);
     transition:
       border-color 0.3s ease,
       background-color 0.3s ease;
   }
-  .barra-pieza:hover {
-    border-color: rgba(127, 211, 255, 0.45);
-    background: rgba(127, 211, 255, 0.08);
+  .banda-pieza:hover {
+    border-color: rgba(127, 211, 255, 0.5);
   }
-  .barra-pieza svg {
+  .banda-pieza svg {
     color: var(--color-accent-2);
   }
-  @media (max-width: 480px) {
-    .barra {
-      padding: 10px;
-      border-radius: 22px;
+  .banda-pieza--seguridad {
+    border-color: rgba(79, 140, 255, 0.45);
+    background:
+      linear-gradient(180deg, rgba(79, 140, 255, 0.2), rgba(79, 140, 255, 0.06)),
+      rgba(16, 19, 25, 0.9);
+  }
+  .banda.is-pausada .banda-pista,
+  .banda.is-pausada .banda-pieza,
+  .banda:focus-within .banda-pista,
+  .banda:focus-within .banda-pieza {
+    animation-play-state: paused;
+  }
+  @media (hover: hover) {
+    .banda:hover .banda-pista,
+    .banda:hover .banda-pieza {
+      animation-play-state: paused;
     }
-    .barra-lista {
-      gap: 6px;
-    }
-    .barra-pieza {
-      gap: 7px;
-      padding: 0 12px 0 10px;
-      font-size: 13px;
-    }
   }
-  .barra-pieza--seguridad {
-    border-color: rgba(79, 140, 255, 0.4);
-    background: rgba(79, 140, 255, 0.1);
+  .banda-pausa {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    margin: 0 20px 0 6px;
+    border-radius: 999px;
+    border: 1px solid var(--color-line-strong);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--color-text-2);
+    transition:
+      color 0.2s ease,
+      background-color 0.2s ease;
   }
-  .barra.is-armada .barra-pieza {
-    opacity: 0;
-    transform: translateY(14px) scale(0.92);
+  .banda-pausa:hover {
+    color: var(--color-text);
+    background: rgba(255, 255, 255, 0.09);
   }
-  /* Primera vez: entran y saltan. Después, solo saltan. */
-  .barra.is-entrando .barra-pieza {
-    animation:
-      barra-entra 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both,
-      barra-salto 1.25s ease-in-out 2;
-    animation-delay:
-      calc(var(--i) * 90ms),
-      calc(0.75s + var(--i) * 90ms);
-  }
-  .barra.is-saltando .barra-pieza {
-    animation: barra-salto 1.25s ease-in-out 2;
-    animation-delay: calc(var(--i) * 90ms);
-  }
-  @keyframes barra-entra {
-    from {
-      opacity: 0;
-      transform: translateY(14px) scale(0.92);
-    }
+  @keyframes banda-recorrido {
     to {
-      opacity: 1;
-      transform: none;
+      transform: translateX(-25%);
     }
   }
-  @keyframes barra-salto {
+  @keyframes banda-rebote {
     0%,
-    34%,
+    44%,
     100% {
-      transform: translateY(0) scale(1, 1);
+      translate: 0 0;
+      scale: 1 1;
     }
-    9% {
-      transform: translateY(1px) scale(1.04, 0.94);
+    8% {
+      translate: 0 1px;
+      scale: 1.05 0.93;
     }
     18% {
-      transform: translateY(-9px) scale(0.98, 1.03);
+      translate: 0 -12px;
+      scale: 0.97 1.04;
     }
-    27% {
-      transform: translateY(0) scale(1.02, 0.98);
+    28% {
+      translate: 0 0;
+      scale: 1.03 0.97;
+    }
+    36% {
+      translate: 0 -3px;
+      scale: 1 1;
+    }
+  }
+  /* En móvil: más lenta y con botones más pequeños. */
+  @media (max-width: 640px) {
+    .banda {
+      --duracion: 60s;
+    }
+    .banda-grupo {
+      gap: 10px;
+      padding-right: 10px;
+    }
+    .banda-pieza {
+      gap: 7px;
+      min-height: 44px;
+      padding: 0 15px 0 12px;
+      font-size: 13.5px;
+    }
+    .banda-pausa {
+      margin-right: 14px;
     }
   }
 
-  /* ---------- Seguridad: esquema de acceso protegido ---------- */
-  .acceso-escena {
-    position: relative;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    align-items: start;
-    gap: 8px;
-    padding-top: 36px;
-  }
-  .acceso-lineas {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 36px;
-    width: 100%;
-    height: 72px;
-    overflow: visible;
-  }
-  .acceso-via {
-    fill: none;
-    stroke: rgba(255, 255, 255, 0.12);
-    stroke-width: 1.5;
-    stroke-dasharray: 4 6;
-    vector-effect: non-scaling-stroke;
-  }
-  .acceso-luz {
-    fill: none;
-    stroke: var(--color-accent-2);
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-dasharray: 14 86;
-    stroke-dashoffset: 14;
-    opacity: 0;
-    vector-effect: non-scaling-stroke;
-    filter: drop-shadow(0 0 6px rgba(127, 211, 255, 0.8));
-  }
-  .acceso.is-activa .acceso-luz {
-    animation: acceso-luz 1.5s cubic-bezier(0.45, 0, 0.55, 1) 3;
-  }
-  @keyframes acceso-luz {
-    0% {
-      stroke-dashoffset: 14;
-      opacity: 0;
-    }
-    10% {
-      opacity: 1;
-    }
-    90% {
-      opacity: 1;
-    }
-    100% {
-      stroke-dashoffset: -100;
-      opacity: 0;
-    }
-  }
-  .acceso-nodo {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    text-align: center;
-  }
-  .acceso-icono {
-    position: relative;
-    z-index: 1;
+  /* ---------- Seguridad: una pieza de confianza ---------- */
+  .confianza-escudo {
     display: grid;
     place-items: center;
     width: 72px;
     height: 72px;
+    flex-shrink: 0;
     border-radius: 22px;
-    border: 1px solid var(--color-line-strong);
-    background: linear-gradient(180deg, #171a20, #0e1014);
-    color: var(--color-text-2);
-  }
-  .acceso-icono--escudo {
-    border-radius: 999px;
+    border: 1px solid rgba(127, 211, 255, 0.32);
+    background: radial-gradient(circle at 30% 20%, rgba(127, 211, 255, 0.25), rgba(79, 140, 255, 0.06) 70%);
+    box-shadow: 0 0 44px -10px rgba(79, 140, 255, 0.5);
     color: var(--color-accent-2);
-    border-color: rgba(127, 211, 255, 0.45);
+  }
+
+  /* ---------- Portafolio: widget de municipios ----------
+     Una pila de tarjetas al estilo de los widgets de Apple: la siguiente sube
+     desde abajo mientras la anterior se va hacia arriba. */
+  .widget {
+    position: relative;
+    isolation: isolate;
+    aspect-ratio: 4 / 3.6;
+    overflow: hidden;
+    border-radius: 32px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #0b0e13;
     box-shadow:
-      0 0 0 6px rgba(79, 140, 255, 0.08),
-      0 0 40px rgba(79, 140, 255, 0.35);
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 40px 90px -40px rgba(0, 0, 0, 0.95);
+    touch-action: pan-y;
   }
-  .acceso-icono--panel {
-    color: var(--color-text);
-  }
-  .acceso.is-activa .acceso-icono--panel {
-    animation: acceso-panel 4.5s ease-out both;
-  }
-  @keyframes acceso-panel {
-    0%,
-    30% {
-      border-color: var(--color-line-strong);
-      box-shadow: none;
-    }
-    40%,
-    100% {
-      border-color: rgba(127, 211, 255, 0.45);
-      box-shadow: 0 0 28px rgba(127, 211, 255, 0.25);
+  @media (min-width: 640px) {
+    .widget {
+      aspect-ratio: 16 / 10.5;
     }
   }
-  .acceso-anillo {
+  .widget-pila {
     position: absolute;
-    left: 50%;
-    top: 36px;
-    width: 72px;
-    height: 72px;
-    margin: -36px 0 0 -36px;
-    border-radius: 999px;
-    border: 1px solid rgba(127, 211, 255, 0.45);
+    inset: 0;
+  }
+  .widget-pieza {
+    position: absolute;
+    inset: 0;
     opacity: 0;
+    transform: translateY(14%) scale(0.94);
+    transition:
+      transform 0.7s var(--ease-out),
+      opacity 0.5s ease;
   }
-  .acceso.is-activa .acceso-anillo {
-    animation: acceso-anillo 1.5s ease-out 3;
+  .widget-pieza[data-estado="activo"] {
+    z-index: 2;
+    opacity: 1;
+    transform: none;
   }
-  .acceso.is-activa .acceso-anillo--2 {
-    animation-delay: 0.5s;
+  .widget-pieza[data-estado="saliente"] {
+    z-index: 1;
+    opacity: 0;
+    transform: translateY(-12%) scale(0.94);
   }
-  @keyframes acceso-anillo {
-    0% {
-      opacity: 0.6;
-      transform: scale(1);
-    }
-    100% {
-      opacity: 0;
-      transform: scale(2.2);
-    }
+  .widget-foto {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 72% center;
   }
-  .acceso-etiqueta {
-    font-size: 13px;
-    line-height: 1.35;
-    color: var(--color-text-2);
+  .widget-respaldo {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background:
+      repeating-radial-gradient(circle at 86% 12%, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 44px),
+      linear-gradient(160deg, #11151c, #07090d);
   }
-  @media (max-width: 480px) {
-    .acceso-icono {
-      width: 60px;
-      height: 60px;
-      border-radius: 18px;
+  .widget-respaldo::before,
+  .widget-respaldo::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+  .widget-respaldo::before {
+    background: radial-gradient(110% 90% at 88% 6%, var(--color), transparent 62%);
+    opacity: 0.62;
+  }
+  .widget-respaldo::after {
+    background: radial-gradient(80% 70% at 0% 100%, var(--color), transparent 70%);
+    opacity: 0.3;
+  }
+  .widget-inicial {
+    position: absolute;
+    right: -2%;
+    bottom: -16%;
+    z-index: 1;
+    font-family: var(--font-display), system-ui, sans-serif;
+    font-size: clamp(12rem, 34vw, 21rem);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.06em;
+    color: rgba(255, 255, 255, 0.07);
+  }
+  .widget-estrella {
+    position: absolute;
+    top: 20%;
+    right: 16%;
+    z-index: 1;
+    width: 40px;
+    height: 40px;
+    filter: drop-shadow(0 0 16px rgba(255, 255, 255, 0.55));
+  }
+  .widget-velo {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(
+      180deg,
+      rgba(5, 7, 10, 0.55) 0%,
+      rgba(5, 7, 10, 0) 26%,
+      rgba(5, 7, 10, 0) 42%,
+      rgba(5, 7, 10, 0.88) 100%
+    );
+  }
+  .widget-sello {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px 5px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(127, 211, 255, 0.35);
+    background: rgba(9, 12, 17, 0.72);
+    color: var(--color-text);
+    font-size: 11.5px;
+    font-weight: 600;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+  .widget-cuenta {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 2;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 11.5px;
+    color: rgba(242, 244, 247, 0.8);
+  }
+  .widget-pie {
+    position: absolute;
+    inset: auto 70px 0 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 0 0 22px 22px;
+  }
+  .widget-etiqueta {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(242, 244, 247, 0.78);
+  }
+  .widget-nombre {
+    font-family: var(--font-display), system-ui, sans-serif;
+    font-size: clamp(2rem, 3.6vw + 0.6rem, 3.4rem);
+    font-weight: 600;
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    color: #fff;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+  }
+  .widget-enlace {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    margin-top: 8px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    transition: background-color 0.2s ease;
+  }
+  .widget-enlace:hover {
+    background: rgba(255, 255, 255, 0.24);
+  }
+  .widget-puntos {
+    position: absolute;
+    top: 50%;
+    right: 16px;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    translate: 0 -50%;
+  }
+  .widget-puntos > span {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.32);
+    transition:
+      height 0.4s var(--ease-out),
+      background-color 0.4s ease;
+  }
+  .widget-puntos > span[data-activo] {
+    height: 16px;
+    background: #fff;
+  }
+  .widget-pausa {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(9, 12, 17, 0.6);
+    color: #fff;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+  .widget-pausa:hover {
+    background: rgba(9, 12, 17, 0.8);
+  }
+  @media (max-width: 420px) {
+    .widget-puntos {
+      display: none;
     }
-    .acceso-anillo {
-      width: 60px;
-      height: 60px;
-      margin: -30px 0 0 -30px;
-      top: 30px;
-    }
-    .acceso-lineas {
-      top: 30px;
-      height: 60px;
-    }
-    .acceso-etiqueta {
-      font-size: 12px;
+    .widget-pie {
+      right: 62px;
     }
   }
 
-  /* ---------- Portafolio: municipios en cascada ---------- */
-  .municipio {
-    position: relative;
-    isolation: isolate;
+  /* Lista de municipios: el que se ve en el widget queda marcado. */
+  .municipio[data-activo] {
+    border-color: rgba(127, 211, 255, 0.45);
+    background: rgba(127, 211, 255, 0.07);
   }
-  .municipio::after {
-    content: "";
-    position: absolute;
-    inset: -1px;
-    z-index: -1;
-    border-radius: inherit;
-    padding: 1px;
-    background: linear-gradient(120deg, transparent 30%, rgba(127, 211, 255, 0.85) 50%, transparent 70%);
-    background-size: 250% 100%;
-    background-position: 120% 0;
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    opacity: 0;
-    pointer-events: none;
-  }
-  .municipio:hover::after,
-  .municipio:focus-visible::after {
-    opacity: 0.7;
-    background-position: 50% 0;
-  }
-  .municipios.is-armada > li {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  .municipios.is-en-vista > li {
-    animation: municipio-entra 0.55s var(--ease-out) both;
-    animation-delay: calc(var(--i) * 45ms);
-  }
-  .municipios.is-en-vista .municipio::after {
-    animation: municipio-luz 0.9s ease-out backwards;
-    animation-delay: calc(0.3s + var(--i) * 70ms);
-  }
-  @keyframes municipio-entra {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-  @keyframes municipio-luz {
-    0% {
-      opacity: 0;
-      background-position: 120% 0;
-    }
-    30% {
-      opacity: 0.9;
-    }
-    100% {
-      opacity: 0;
-      background-position: -20% 0;
-    }
+  .municipio-color {
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--color);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06);
   }
 
   /* ---------- Escena final: la estrella del norte ---------- */
@@ -1371,10 +1470,15 @@
   [data-asistente] {
     display: none !important;
   }
-  .barra-pieza,
-  .municipios > li {
-    opacity: 1 !important;
-    transform: none !important;
+  .banda-pista,
+  .banda-pieza {
+    animation: none !important;
+  }
+  .banda-grupo:not(:first-child),
+  .banda-pausa,
+  .widget-pausa,
+  .widget-puntos {
+    display: none !important;
   }
   .palabra > span {
     transform: none !important;
@@ -1420,23 +1524,41 @@
     transform: none;
     transition: none;
   }
-  .barra-pieza,
-  .municipios > li,
-  .municipio::after,
+  .banda-pista,
+  .banda-pieza,
   .sello-anillo,
   .sello-centro svg,
-  .acceso-luz,
-  .acceso-anillo,
-  .acceso-icono--panel,
   .final-estrella,
   .final-halo,
   .mensaje-in,
   .cargando {
     animation: none !important;
   }
-  .barra.is-armada .barra-pieza,
-  .municipios.is-armada > li {
-    opacity: 1;
+  /* Banda quieta: una sola fila centrada, sin recorrido, rebote ni pausa. */
+  .banda-pista {
+    width: auto;
+    justify-content: center;
+  }
+  .banda-grupo {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding-inline: 20px;
+  }
+  .banda-grupo:not(:first-child),
+  .banda-pausa {
+    display: none;
+  }
+  .banda-ventana {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  /* Widget: cambia sin desplazarse. */
+  .widget-pieza,
+  .widget-puntos > span,
+  .beneficio {
+    transition: none;
+  }
+  .widget-pieza[data-estado] {
     transform: none;
   }
   .indicador-raton::after {

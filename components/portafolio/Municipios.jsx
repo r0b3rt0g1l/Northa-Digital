@@ -1,60 +1,238 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { ArrowUpRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
+import { ArrowUpRight, Pause, Play } from "lucide-react";
+import { StarIcon } from "@/components/ui/StarIcon";
+
+const INTERVALO = 2600; // ms por municipio: cambia rápido, sin prisa al leer
+const sinGuion = (t) => t.replace(/­/g, "");
 
 /**
- * Todos los portales municipales publicados, en tarjetas compactas. Cada
- * tarjeta es un enlace que abre el portal en una pestaña nueva. Al entrar en
- * pantalla aparecen en cascada y una luz recorre sus bordes una sola vez.
- * Sin JavaScript o con movimiento reducido se muestran quietas desde el
- * inicio. Funciona con teclado, ratón y pantalla táctil.
+ * Portafolio de municipios: un widget al estilo de Apple que pasa solo por
+ * todos los municipios con portal publicado, y la lista completa con el
+ * enlace a cada portal.
+ *
+ *  - Cada municipio se muestra con su nombre y su imagen: la captura real del
+ *    portal cuando existe en el proyecto (Mazatán) y, si no, un diseño de
+ *    respaldo con su color institucional (ver lib/content/proyectos.js).
+ *  - Cambia solo cada 2,6 s con una transición vertical corta, como una pila
+ *    de widgets. Se detiene al pasar el puntero o enfocar el bloque, fuera de
+ *    pantalla, con la pestaña oculta y con su botón de pausa (WCAG 2.2.2).
+ *  - Pasar el puntero o enfocar un municipio de la lista lo muestra en el
+ *    widget. En pantallas táctiles se puede deslizar para avanzar.
+ *  - Con movimiento reducido no avanza solo ni se desliza: cambia al elegir.
+ *  - Sin JavaScript se ve el primer municipio y la lista con todos los enlaces.
  */
-export function Municipios({ enlaces }) {
-  const ref = useRef(null);
+export function Municipios({ enlaces, imagen }) {
+  // Orden del widget: primero el municipio con captura, luego el resto.
+  const conImagen = imagen ? enlaces.find((e) => e.url === imagen.enlace.url) : null;
+  const orden = conImagen ? [conImagen, ...enlaces.filter((e) => e !== conImagen)] : enlaces;
+  const total = orden.length;
+
+  const [activo, setActivo] = useState(0);
+  const [pausado, setPausado] = useState(false); // por el visitante (botón)
+  const [enEspera, setEnEspera] = useState(false); // puntero o foco encima
+  const [visible, setVisible] = useState(false);
+  const [reducido, setReducido] = useState(false);
+  const raizRef = useRef(null);
+  const toque = useRef(null);
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    // Solo se arma si está bajo el pliegue: lo visible nunca se oculta.
-    if (el.getBoundingClientRect().top < window.innerHeight * 0.9) return;
-    el.classList.add("is-armada");
-    const io = new IntersectionObserver(
-      ([e]) => {
-        if (!e.isIntersecting) return;
-        el.classList.add("is-en-vista");
-        io.disconnect();
-      },
-      { rootMargin: "0px 0px -10% 0px", threshold: 0.1 },
-    );
-    io.observe(el);
-    return () => io.disconnect();
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const leer = () => setReducido(mq.matches);
+    leer();
+    mq.addEventListener?.("change", leer);
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { threshold: 0.35 });
+    if (raizRef.current) io.observe(raizRef.current);
+    return () => {
+      mq.removeEventListener?.("change", leer);
+      io.disconnect();
+    };
   }, []);
 
+  const avanza = !pausado && !enEspera && visible && !reducido;
+
+  useEffect(() => {
+    if (!avanza) return;
+    let t = null;
+    const programar = () => {
+      t = setTimeout(() => {
+        if (!document.hidden) setActivo((i) => (i + 1) % total);
+        programar();
+      }, INTERVALO);
+    };
+    programar();
+    return () => clearTimeout(t);
+  }, [avanza, total]);
+
+  const ir = (i) => setActivo((i + total) % total);
+  const indiceDe = (e) => orden.indexOf(e);
+
+  // Deslizar en pantallas táctiles: horizontal o vertical, a partir de 40 px.
+  const alTocar = (e) => {
+    if (e.pointerType !== "touch") return;
+    toque.current = { x: e.clientX, y: e.clientY };
+  };
+  const alSoltar = (e) => {
+    const t = toque.current;
+    toque.current = null;
+    if (!t || e.pointerType !== "touch") return;
+    const dx = e.clientX - t.x;
+    const dy = e.clientY - t.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 40) return;
+    ir(activo + ((Math.abs(dx) > Math.abs(dy) ? dx : dy) < 0 ? 1 : -1));
+  };
+
+  const actual = orden[activo];
+
   return (
-    <ul ref={ref} className="municipios m-0 grid list-none grid-cols-2 gap-2.5 p-0 sm:grid-cols-3 lg:grid-cols-3">
-      {enlaces.map((e, i) => (
-        <li key={e.url} style={{ "--i": i }}>
-          <a
-            href={e.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="municipio group/m flex h-full min-h-[64px] items-center justify-between gap-2 rounded-2xl border border-line bg-surface/80 px-3.5 py-3 transition-[border-color,background-color,translate] duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-surface-2 focus-visible:-translate-y-0.5"
-          >
-            <span className="flex min-w-0 flex-col">
-              <span className="wrap-break-word hyphens-auto text-[15px] font-semibold leading-tight tracking-[-0.01em] text-text">{e.nombre}</span>
-              <span className="text-[12px] text-muted transition-colors group-hover/m:text-accent-2">Ver portal</span>
-            </span>
-            <ArrowUpRight
-              className="h-4 w-4 shrink-0 text-muted transition-[color,translate] duration-300 group-hover/m:-translate-y-0.5 group-hover/m:translate-x-0.5 group-hover/m:text-accent-2"
-              aria-hidden="true"
-            />
-            <span className="sr-only"> (abre el portal de {e.nombre} en una pestaña nueva)</span>
-          </a>
-        </li>
-      ))}
-    </ul>
+    <div
+      ref={raizRef}
+      className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_1fr] lg:items-start lg:gap-8"
+      onPointerEnter={(e) => e.pointerType === "mouse" && setEnEspera(true)}
+      onPointerLeave={(e) => e.pointerType === "mouse" && setEnEspera(false)}
+      onFocus={() => setEnEspera(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setEnEspera(false);
+      }}
+    >
+      <figure className="m-0 flex flex-col gap-3">
+        <div
+          className="widget"
+          role="region"
+          aria-roledescription="carrusel"
+          aria-label="Municipios con portal hecho por Northa Digital"
+          onPointerDown={alTocar}
+          onPointerUp={alSoltar}
+          onPointerCancel={() => (toque.current = null)}
+        >
+          <div className="widget-pila" aria-live={avanza ? "off" : "polite"}>
+            {orden.map((m, i) => {
+              const estado = i === activo ? "activo" : i === (activo - 1 + orden.length) % orden.length ? "saliente" : "espera";
+              const nombre = sinGuion(m.nombre);
+              return (
+                <div
+                  key={m.url}
+                  className="widget-pieza"
+                  data-estado={estado}
+                  role="group"
+                  aria-roledescription="diapositiva"
+                  aria-label={`${i + 1} de ${orden.length}: ${nombre}`}
+                  aria-hidden={i !== activo}
+                  inert={i !== activo}
+                  style={{ "--color": m.color }}
+                >
+                  {m === conImagen ? (
+                    <Image
+                      src={imagen.src}
+                      alt={imagen.alt}
+                      width={imagen.width}
+                      height={imagen.height}
+                      sizes="(min-width: 1240px) 660px, (min-width: 1024px) 54vw, 100vw"
+                      loading="lazy"
+                      className="widget-foto"
+                    />
+                  ) : (
+                    <span className="widget-respaldo" aria-hidden="true">
+                      <span className="widget-inicial">{nombre.charAt(0)}</span>
+                      <StarIcon className="widget-estrella" />
+                    </span>
+                  )}
+                  <span className="widget-velo" aria-hidden="true" />
+                  <span className="hecho-por widget-sello">
+                    <StarIcon className="h-3.5 w-3.5" />
+                    Hecho por Northa Digital
+                  </span>
+                  <span className="widget-cuenta" aria-hidden="true">
+                    {String(i + 1).padStart(2, "0")} / {String(orden.length).padStart(2, "0")}
+                  </span>
+                  <div className="widget-pie">
+                    <span className="widget-etiqueta">Portal municipal</span>
+                    <span className="widget-nombre">{m.nombre}</span>
+                    <a href={m.url} target="_blank" rel="noopener noreferrer" className="widget-enlace">
+                      Ver portal
+                      <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                      <span className="sr-only"> de {nombre} (se abre en una pestaña nueva)</span>
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <span className="widget-puntos" aria-hidden="true">
+            {orden.map((m, i) => (
+              <span key={m.url} data-activo={i === activo || undefined} />
+            ))}
+          </span>
+          {!reducido ? (
+            <button
+              type="button"
+              className="widget-pausa"
+              aria-pressed={pausado}
+              onClick={() => setPausado((v) => !v)}
+              aria-label={pausado ? "Reanudar el carrusel de municipios" : "Pausar el carrusel de municipios"}
+            >
+              {pausado ? <Play className="h-4 w-4" aria-hidden="true" /> : <Pause className="h-4 w-4" aria-hidden="true" />}
+            </button>
+          ) : null}
+        </div>
+        {conImagen && imagen.credito ? (
+          <figcaption className="px-2 text-[12.5px] text-faint">
+            Captura del portal de {sinGuion(conImagen.nombre)}.{" "}
+            <a
+              href={imagen.credito.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-white/20 underline-offset-4 transition-colors hover:text-text-2"
+            >
+              {imagen.credito.texto}
+            </a>
+          </figcaption>
+        ) : null}
+      </figure>
+
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <h3 className="text-[clamp(1.25rem,1vw+1rem,1.6rem)] tracking-[-0.02em]">Portales municipales</h3>
+          <span className="rounded-full border border-line-strong px-3 py-1 font-mono text-[11.5px] text-text-2">
+            {enlaces.length} publicados
+          </span>
+        </div>
+        <ul className="municipios m-0 grid list-none grid-cols-2 gap-2 p-0 sm:grid-cols-3">
+          {enlaces.map((e) => {
+            const nombre = sinGuion(e.nombre);
+            const esActivo = e === actual;
+            return (
+              <li key={e.url}>
+                <a
+                  href={e.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onPointerEnter={(ev) => ev.pointerType === "mouse" && ir(indiceDe(e))}
+                  onFocus={() => ir(indiceDe(e))}
+                  data-activo={esActivo || undefined}
+                  style={{ "--color": e.color }}
+                  className="municipio group/m flex h-full min-h-12 items-center justify-between gap-2 rounded-2xl border border-line bg-surface/80 px-3.5 py-2.5 transition-[border-color,background-color] duration-300 hover:border-white/20 hover:bg-surface-2"
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className="municipio-color" aria-hidden="true" />
+                    <span className="wrap-break-word hyphens-auto text-[14.5px] font-semibold leading-tight tracking-[-0.01em] text-text">
+                      {e.nombre}
+                    </span>
+                  </span>
+                  <ArrowUpRight
+                    className="h-4 w-4 shrink-0 text-muted transition-[color,translate] duration-300 group-hover/m:-translate-y-0.5 group-hover/m:translate-x-0.5 group-hover/m:text-accent-2"
+                    aria-hidden="true"
+                  />
+                  <span className="sr-only"> (abre el portal de {nombre} en una pestaña nueva)</span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
   );
 }
 

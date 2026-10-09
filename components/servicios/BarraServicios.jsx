@@ -1,89 +1,84 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Pause, Play } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { servicios, seguridad } from "@/lib/content/servicios";
 import { abrirAsistente } from "@/lib/acciones";
 
 const piezas = [...servicios, seguridad];
+// Copias de la fila para que el recorrido no tenga huecos ni en pantallas muy
+// anchas: la pista avanza exactamente una copia y vuelve a empezar.
+const COPIAS = 4;
 
 /**
- * Barra de servicios compacta. Al entrar en pantalla, las piezas aparecen y
- * dan dos pequeños saltos, una tras otra, dentro de la barra (menos de cinco
- * segundos en total); luego descansan. Se repite al volver a la barra o al
- * pasar el puntero por encima. No depende del scroll ni del cursor para
- * moverse, y no necesita botón de pausa porque se detiene sola. Solo usa
- * transform y opacity: se ve igual en Windows, macOS, Android e iOS.
- * Con movimiento reducido o sin JavaScript, la barra está quieta.
- * Cada pieza abre el asistente con ese servicio elegido.
+ * Banda de servicios en movimiento: los botones recorren la pantalla de lado
+ * a lado en un ciclo continuo y, además, rebotan uno tras otro, como una ola.
+ * Vive en su propia franja, a todo el ancho, así que no tapa textos ni otros
+ * botones. Solo usa transform y translate: fluido en Windows, macOS, Android
+ * e iOS.
+ *
+ * Accesibilidad (WCAG 2.2.2): botón de pausa siempre visible, y la banda se
+ * detiene al pasar el puntero, al enfocar un botón o al tocarla. Las copias
+ * de relleno responden al clic y al toque (son las que se ven casi siempre),
+ * pero no se leen ni entran en el orden del teclado. Con movimiento reducido, la banda
+ * queda quieta y centrada, sin rebote ni pausa. En móvil va más lenta y con
+ * botones más pequeños. Cada botón abre el asistente con ese servicio.
  */
 export function BarraServicios() {
-  const ref = useRef(null);
+  const [pausada, setPausada] = useState(false);
+  const [tocada, setTocada] = useState(false);
+  const timer = useRef(null);
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  useEffect(() => () => clearTimeout(timer.current), []);
 
-    let primera = true;
-    let fuera = true;
-    // Mientras una secuencia sigue en curso no se reinicia.
-    const enCurso = () =>
-      (el.getAnimations?.({ subtree: true }) ?? []).some((a) => a.animationName && a.playState === "running");
-    const saltar = () => {
-      if (enCurso()) return;
-      el.classList.remove("is-entrando", "is-saltando");
-      void el.offsetWidth; // reinicia la animación
-      if (primera) {
-        primera = false;
-        el.classList.add("is-entrando");
-      } else {
-        el.classList.remove("is-armada");
-        el.classList.add("is-saltando");
-      }
-    };
-
-    // Solo se oculta para la entrada si está bajo el pliegue.
-    if (el.getBoundingClientRect().top > window.innerHeight * 0.9) el.classList.add("is-armada");
-    else primera = false;
-
-    const io = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting && e.intersectionRatio >= 0.5 && fuera) {
-          fuera = false;
-          saltar();
-        } else if (!e.isIntersecting) {
-          fuera = true;
-        }
-      },
-      { threshold: [0, 0.5] },
-    );
-    io.observe(el);
-    const alPasar = (e) => e.pointerType === "mouse" && saltar();
-    el.addEventListener("pointerenter", alPasar);
-    return () => {
-      io.disconnect();
-      el.removeEventListener("pointerenter", alPasar);
-    };
-  }, []);
+  // Un toque detiene la banda unos segundos para poder elegir con calma.
+  const alTocar = (e) => {
+    if (e.pointerType === "mouse") return;
+    setTocada(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setTocada(false), 3500);
+  };
 
   return (
-    <div ref={ref} className="barra">
-      <ul className="barra-lista" aria-label="Servicios de Northa Digital">
-        {piezas.map((s, i) => (
-          <li key={s.id} style={{ "--i": i }}>
-            <button
-              type="button"
-              aria-haspopup="dialog"
-              onClick={() => abrirAsistente({ modo: "consulta", servicio: s.id })}
-              className={cn("barra-pieza", s.id === seguridad.id && "barra-pieza--seguridad")}
+    <div className={cn("banda", (pausada || tocada) && "is-pausada")} onPointerDown={alTocar}>
+      <div className="banda-ventana">
+        <div className="banda-pista">
+          {Array.from({ length: COPIAS }, (_, copia) => (
+            <ul
+              key={copia}
+              className="banda-grupo"
+              aria-label={copia === 0 ? "Servicios de Northa Digital" : undefined}
+              aria-hidden={copia > 0 || undefined}
             >
-              <s.Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.7} aria-hidden="true" />
-              {s.title}
-            </button>
-          </li>
-        ))}
-      </ul>
+              {piezas.map((s, i) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    aria-haspopup="dialog"
+                    tabIndex={copia > 0 ? -1 : undefined}
+                    onClick={() => abrirAsistente({ modo: "consulta", servicio: s.id })}
+                    className={cn("banda-pieza", s.id === seguridad.id && "banda-pieza--seguridad")}
+                    style={{ "--i": i }}
+                  >
+                    <s.Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.7} aria-hidden="true" />
+                    {s.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ))}
+        </div>
+      </div>
+      <button
+        type="button"
+        className="banda-pausa"
+        aria-pressed={pausada}
+        onClick={() => setPausada((v) => !v)}
+        aria-label={pausada ? "Reanudar el movimiento de los servicios" : "Pausar el movimiento de los servicios"}
+      >
+        {pausada ? <Play className="h-4 w-4" aria-hidden="true" /> : <Pause className="h-4 w-4" aria-hidden="true" />}
+      </button>
     </div>
   );
 }

@@ -7,9 +7,9 @@ cada bloque responde una sola pregunta.
 | Sección | Pregunta que responde |
 |---|---|
 | Hero | ¿Qué hacen? |
-| Lo que construimos | ¿Qué ofrecen? |
-| Seguridad | ¿Cómo protegen sus sistemas? |
+| Lo que construimos | ¿Qué ofrecen y qué gano yo? |
 | Portafolio | ¿Qué trabajo real han hecho? |
+| Seguridad | ¿Puedo confiar en ellos? |
 | Escena final y pie | ¿Cómo los contacto? |
 
 La oferta completa vive en el menú «Servicios» de la barra superior y en el
@@ -29,15 +29,19 @@ asistente. La página no repite tarjetas de servicios.
   página nunca se desplaza sola.
 - **Vidrio:** solo en navbar, menú, asistente y controles. El resto son superficies
   mate.
-- **Lo que construimos:** el sello giratorio de Northa y una barra compacta con los
-  servicios. Las piezas entran una tras otra con un pequeño rebote cuando la barra
-  aparece en pantalla y vuelven a saltar al pasar el ratón.
-- **Seguridad:** un esquema ilustrativo de acceso protegido (VPN, Zero Trust y
-  acceso por persona). Es un dibujo conceptual: no hay pantallas de acceso,
-  formularios ni verificaciones reales.
-- **Portafolio:** la captura del portal de Mazatán con la insignia «Hecho por
-  Northa Digital» y todos los municipios con portal publicado, cada uno con su
-  enlace.
+- **Lo que construimos:** el sello giratorio de Northa, seis beneficios cortos
+  (presencia digital, información ordenada, turismo, trámites, comunicación y
+  administración) y una banda a todo el ancho con los servicios: los botones
+  recorren la pantalla en un ciclo continuo y rebotan uno tras otro. Tiene botón
+  de pausa y se detiene al pasar el puntero, al enfocarla o al tocarla.
+- **Portafolio:** un widget al estilo de Apple que pasa solo por los 15 municipios
+  con portal publicado (cada 2,6 s, con pausa), con la insignia «Hecho por Northa
+  Digital», y la lista con el enlace a cada portal. Mazatán lleva la portada real
+  de su portal; el resto, un diseño con su color institucional, tomado de su
+  escudo o logotipo oficial.
+- **Seguridad:** una sola pieza de confianza: implementamos medidas modernas de
+  protección y control de acceso para las plataformas administrativas. Sin
+  detalles técnicos, herramientas ni pantallas de acceso.
 - **Escena final:** la estrella del norte se enciende y da una vuelta completa al
   entrar en pantalla.
 - **Puntero:** en escritorio, un puntero adaptable al estilo de iPadOS. Es un círculo
@@ -45,10 +49,11 @@ asistente. La página no repite tarjetas de servicios.
   se vuelve una barra de escritura y en los campos vuelve el cursor del sistema.
 - **Tipografía:** Sora para títulos, Manrope para texto y JetBrains Mono para
   etiquetas cortas.
-- Las animaciones de las secciones duran unos segundos al entrar en pantalla y se
-  detienen solas. Solo el cielo y los destellos de la señal se mueven de forma
-  continua, lentos y discretos. Todo respeta `prefers-reduced-motion`: el cielo queda
-  quieto y las piezas aparecen sin animación. El contenido funciona sin JavaScript.
+- Se mueven de forma continua el cielo, los destellos de la señal, la banda de
+  servicios y el widget del portafolio; la banda y el widget tienen botón de pausa.
+  El resto de animaciones dura unos segundos y se detiene solo. Todo respeta
+  `prefers-reduced-motion`: el cielo queda quieto, la banda se muestra fija y el
+  widget no avanza solo. El contenido funciona sin JavaScript.
 
 Los valores viven en `app/globals.css` (tokens en `@theme`) y en `lib/fonts.js`.
 
@@ -65,27 +70,34 @@ abre el asistente. Sin JavaScript, el mismo botón abre WhatsApp directamente.
 
 ## Asistente del sitio
 
-Asistente guiado con respuestas predefinidas. No es inteligencia artificial ni
-atención en tiempo real, y lo dice en el panel.
+Asistente con respuestas automáticas. No es inteligencia artificial ni atención en
+tiempo real, y lo dice en el panel. Hace pocas preguntas, con opciones claras:
 
-1. Da la bienvenida y pregunta el servicio entre las opciones reales.
-2. Pregunta el objetivo, el tipo de organización, lo que debe incluir y el plazo
-   aproximado. Casi todas aceptan una respuesta escrita con palabras propias y
-   las opcionales se pueden saltar.
-3. Muestra un resumen que se puede revisar y cambiar línea por línea.
-4. «Abrir en WhatsApp» abre el chat con el mensaje ya escrito. Nada se envía
-   hasta que el visitante lo manda.
+1. «¿Buscas un portal municipal, una página web o algún sistema digital?». Si el
+   visitante no sabe, pregunta si es para un municipio, un negocio o un proyecto
+   personal. También entiende texto libre (portal, turismo, trámites, formularios,
+   galería, transparencia…).
+2. ¿Para qué municipio u organización sería? (opcional)
+3. ¿Qué es lo principal que necesitas?
+4. ¿Cómo te llamas? (opcional)
+5. ¿Cómo prefieres que te contactemos? WhatsApp, llamada o correo (el correo es
+   opcional).
 
-También responde dudas frecuentes con información verificada y ofrece hablar con
-una persona por WhatsApp, teléfono o correo. No pide nombre, teléfono ni correo. El
-panel se descarga solo cuando alguien lo abre y la conversación se guarda durante
-la sesión del navegador.
+Al final muestra un resumen que se puede cambiar línea por línea y «Continuar por
+WhatsApp» abre el chat con el mensaje listo. Nada se envía hasta que el visitante
+lo manda. Los datos solo viajan en ese mensaje; el sitio no los guarda en ningún
+servidor (la conversación queda en la sesión del navegador).
 
-- Preguntas del flujo y armado del mensaje: `lib/content/consulta.js`.
+También responde dudas frecuentes y ofrece hablar con una persona por WhatsApp,
+teléfono o correo. Cualquier servicio de la página abre el asistente ya en ese
+servicio.
+
+- Preguntas, opciones y armado del mensaje: `lib/content/consulta.js`.
 - Dudas frecuentes y palabras clave: `lib/content/asistente.js`.
 - Motor de respuestas: `lib/asistente.js`.
 
-Regla: nada de precios, plazos, clientes o métricas inventadas.
+Regla: nada de precios, plazos, funciones, integraciones, clientes o métricas
+inventadas.
 
 ## Estructura del proyecto
 
@@ -103,14 +115,15 @@ lib/
   asistente.js       motor del asistente
   acciones.js        puente entre bloques (abrir el asistente, ir a una sección)
   site.js            identidad, contacto y URL principal
-public/portafolio/   captura del portal de Mazatán (con crédito del escudo)
+public/portafolio/   portada del portal de Mazatán (sin menú ni escudo)
 ```
 
 ### Añadir un municipio al portafolio
 
-Agrega una entrada en `enlaces` dentro de `lib/content/proyectos.js` con el nombre
-y la dirección del portal publicado. Solo portales reales y en línea. Las imágenes
-de terceros, como los escudos municipales, llevan su crédito.
+Agrega una entrada en `enlaces` dentro de `lib/content/proyectos.js` con el nombre,
+la dirección del portal publicado y su color institucional (el tono dominante de su
+escudo o logotipo oficial). Solo portales reales y en línea. Las imágenes de
+terceros, como los escudos municipales, solo se usan con permiso y con su crédito.
 
 ## Desarrollo
 

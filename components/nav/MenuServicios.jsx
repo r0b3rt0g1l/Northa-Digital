@@ -212,7 +212,7 @@ export function MenuServicios({ activo = false }) {
                 onClick={() => cerrar()}
                 className="inline-flex min-h-10 items-center gap-1.5 rounded-full px-1 text-[13px] font-medium text-text hover:text-accent-2"
               >
-                Ver cómo funciona
+                Conocer más
                 <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
               </a>
               <button
