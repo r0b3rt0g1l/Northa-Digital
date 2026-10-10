@@ -253,7 +253,14 @@ export function Nav() {
                 </li>
               ))}
             <li className="mt-2">
-              <BotonWhatsapp className="w-full" magnetic={false} onAbrir={cerrarMenu}>
+              <BotonWhatsapp
+                className="w-full"
+                magnetic={false}
+                onAbrir={() => {
+                  cerrarMenu();
+                  toggleRef.current?.focus();
+                }}
+              >
                 {ctaPrincipal.label}
               </BotonWhatsapp>
             </li>

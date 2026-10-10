@@ -2,86 +2,100 @@
 
 import { useEffect, useRef } from "react";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { alCambiarMovimiento, movimientoPausado } from "@/lib/movimiento";
 
 /**
- * Cielo de fondo vivo y realista:
- *  - todo el cielo gira alrededor de la señal del hero, la estrella polar de
- *    Northa, en sentido antihorario como el cielo del norte. Cada estrella
- *    deja una estela en arco, como en una foto de larga exposición: las
- *    estelas siempre están a la vista y giran con su estrella;
- *  - dos capas con profundidad: la lejana (polvo, Vía Láctea y estrellas
- *    fijas) y la media (las que centellean y las brillantes), que gira un
- *    poco más rápido. Al hacer scroll el cielo acelera su giro, y con el
- *    ratón las capas se desplazan a distinto ritmo (paralaje);
- *  - centelleo individual con tres ondas de periodos distintos, destellos de
- *    difracción en las brillantes y estrellas fugaces cada pocos segundos.
+ * Fondo espacial en vivo, en un único canvas 2D:
  *
- * Lo fijo de cada capa (estrellas y estelas) se pinta UNA vez en un canvas
- * fuera de pantalla centrado en el polo y se copia girado en cada cuadro; lo
- * que centellea y las fugaces se pintan encima. Un único canvas 2D: funciona
- * igual en Chrome, Edge, Firefox y Safari, en Windows, macOS, Android e iOS.
+ *  - Tres capas de estrellas con profundidad (lejana, media y cercana). Cada
+ *    una se pinta UNA vez en un mosaico que se repite sin costuras y deriva
+ *    despacio, cada capa a su ritmo: el espacio nunca está quieto.
+ *  - Las estrellas son puntos nítidos con un halo corto, de tamaños, brillos
+ *    y colores suaves distintos (blanco, azul claro, amarillo pálido). Nunca
+ *    círculos grandes: solo las más brillantes llevan un destello fino.
+ *  - Un grupo de estrellas centellea cada una a su propio ritmo (tres ondas
+ *    de periodos distintos), y las brillantes cambian de tono un instante.
+ *  - Estrellas fugaces cada pocos segundos: aparecen de repente, cruzan con
+ *    una estela que se afina hacia atrás y se apagan con suavidad.
+ *  - Una franja muy tenue de Vía Láctea da profundidad.
+ *  - Al hacer scroll, las capas se desplazan en vertical a distinto ritmo
+ *    (paralaje), con un leve retardo para que nunca sea brusco; con el ratón,
+ *    un paralaje mínimo.
  *
- * Intensidad: 100 % en el hero y la escena final, 82 % detrás del contenido
- * (el cielo sigue visible en toda la página). 30 cuadros por segundo, pausa
- * con la pestaña oculta, DPR máximo 1,5. Si los cuadros llegan tarde de forma
- * sostenida, baja a DPR 1, menos estrellas y 20 cuadros por segundo; el
- * movimiento sigue. Con prefers-reduced-motion o ahorro de datos: un cuadro
- * fijo, con estrellas y estelas, sin giro, paralaje ni fugaces.
+ * Intensidad: 100 % en el hero y la escena final, 85 % detrás del contenido.
+ * 30 cuadros por segundo, pausa con la pestaña oculta, DPR máximo 1,5. Si los
+ * cuadros llegan tarde de forma sostenida, baja a 20 cuadros por segundo y
+ * centellean la mitad de las estrellas; el cielo no cambia de sitio y el
+ * movimiento sigue. Las posiciones salen de un generador con semilla: al girar
+ * el teléfono o cambiar el ancho, las estrellas conservan su sitio. El lienzo
+ * mide el alto grande de la pantalla (lvh), así que la barra del navegador
+ * del celular no lo mueve. Con prefers-reduced-motion o ahorro de datos: un
+ * cuadro fijo, sin deriva, paralaje, centelleo ni fugaces. Con «Pausar
+ * animaciones» (pie de página) se queda quieto en el cuadro actual.
  */
 
 const ALTA = 1;
-const BAJA = 0.82;
+const BAJA = 0.85;
 const SECCIONES_ALTAS = ["inicio", "final"];
 const TAU = Math.PI * 2;
-const VUELTA = 15 * 60 * 1000; // ms por vuelta completa de la capa lejana
-const OMEGA = TAU / VUELTA; // radianes por ms
-// La capa media gira un poco más rápido que la lejana: profundidad.
-const PARALAJE_MEDIO = 1.18;
-// Al hacer scroll el cielo gira hacia adelante (en cualquier sentido de
-// scroll, así las estelas siempre quedan detrás de su estrella).
-const GIRO_SCROLL = 0.00011; // rad por px desplazado
-// Paralaje con el ratón: px de desplazamiento máximo por capa.
-const MOUSE_LEJANA = 8;
-const MOUSE_MEDIA = 20;
-// Largo angular de las estelas (la «exposición»): igual para todas, así cerca
-// del polo son cortas y lejos son largas, como en una foto real.
-const ESTELA = 0.12;
-const ESTELA_MAX_PX = 240;
 const FPS = 30;
-const MARGEN = 200; // px de cielo de sobra alrededor de la ventana
-const MAX_PIXELES = 8e6; // tope de cada capa fija en píxeles reales (~32 MB)
+const DPR_MAX = 1.5;
+// Dirección de la deriva: hacia la izquierda y un poco hacia arriba.
+const DERIVA = { x: -0.96, y: -0.28 };
 
-// Temperaturas de color con su peso aproximado en un cielo a simple vista.
-const COLORES = [
-  [0.24, "196,214,255"], // azulada
-  [0.46, "238,242,255"], // blanca
-  [0.2, "255,246,230"], // cálida
-  [0.08, "255,228,196"], // amarillenta
-  [0.02, "255,204,170"], // anaranjada
+// Capas: tamaño del mosaico (px CSS), estrellas por megapíxel, tamaños del
+// punto, brillo, velocidad de deriva (px/s), paralaje de scroll y de ratón.
+const CAPAS = [
+  { lado: 1024, densidad: 900, tam: [1.7, 3.3], alfa: [0.3, 0.78], vel: 2.4, scroll: 0.03, raton: 5 },
+  { lado: 896, densidad: 270, tam: [2.6, 4.6], alfa: [0.5, 0.95], vel: 5.2, scroll: 0.07, raton: 11 },
+  { lado: 1152, densidad: 48, tam: [3.8, 6.2], alfa: [0.72, 1], vel: 9, scroll: 0.12, raton: 18 },
 ];
-// Las brillantes tiran a azuladas y blancas, con alguna cálida.
-const COLORES_BRILLANTES = [0, 0, 1, 1, 1, 2, 3];
 
-const azar = (min, max) => min + Math.random() * (max - min);
+// Colores suaves con su peso: blanco, azul claro y amarillo pálido.
+const COLORES = [
+  [0.52, "242,246,255"], // blanca
+  [0.3, "196,218,255"], // azul claro
+  [0.18, "255,240,206"], // amarillo pálido
+];
+
+// Generador con semilla (mulberry32): al volver a poblar el cielo, cada
+// conjunto de estrellas sale igual y nada cambia de golpe.
+function generador(semilla) {
+  let a = semilla >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let aleatorio = Math.random;
+
+const azar = (min, max) => min + aleatorio() * (max - min);
+const modulo = (a, n) => ((a % n) + n) % n;
 
 function colorAzar() {
-  let r = Math.random();
+  let r = aleatorio();
   for (let i = 0; i < COLORES.length; i++) {
     r -= COLORES[i][0];
     if (r <= 0) return i;
   }
-  return 1;
+  return 0;
 }
 
-// Normal estándar (Box-Muller) para repartir estrellas en la franja.
+// Normal estándar (Box-Muller) para repartir la Vía Láctea.
 function gauss() {
-  const u = 1 - Math.random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * Math.random());
+  const u = 1 - aleatorio();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * aleatorio());
 }
 
-/** Punto de luz: núcleo blanco y caída casi gaussiana teñida de color. */
+/**
+ * Estrella como punto de luz: núcleo blanco muy pequeño y una caída corta
+ * teñida de color. El sprite mide 16 px y se dibuja a 2-6 px: se ve como un
+ * punto nítido, no como un círculo.
+ */
 function spritePunto(color) {
-  const lado = 32;
+  const lado = 16;
   const r = lado / 2;
   const c = document.createElement("canvas");
   c.width = lado;
@@ -89,23 +103,18 @@ function spritePunto(color) {
   const g = c.getContext("2d");
   const grad = g.createRadialGradient(r, r, 0, r, r, r);
   grad.addColorStop(0, "rgba(255,255,255,1)");
-  grad.addColorStop(0.1, `rgba(${color},0.97)`);
-  grad.addColorStop(0.22, `rgba(${color},0.55)`);
-  grad.addColorStop(0.4, `rgba(${color},0.18)`);
-  grad.addColorStop(0.64, `rgba(${color},0.05)`);
+  grad.addColorStop(0.16, `rgba(${color},0.95)`);
+  grad.addColorStop(0.34, `rgba(${color},0.32)`);
+  grad.addColorStop(0.6, `rgba(${color},0.06)`);
   grad.addColorStop(1, `rgba(${color},0)`);
   g.fillStyle = grad;
   g.fillRect(0, 0, lado, lado);
   return c;
 }
 
-/**
- * Destello de difracción: dos puntas finas en cruz. Cada una es un degradado
- * radial aplastado, así se afina y se apaga hacia el extremo como en una
- * foto real, sin bordes duros.
- */
+/** Destello fino de difracción (cruz) para las estrellas más brillantes. */
 function spritePuntas(color) {
-  const lado = 128;
+  const lado = 64;
   const r = lado / 2;
   const c = document.createElement("canvas");
   c.width = lado;
@@ -116,55 +125,30 @@ function spritePuntas(color) {
     g.translate(r, r);
     g.scale(sx, sy);
     const grad = g.createRadialGradient(0, 0, 0, 0, 0, r);
-    grad.addColorStop(0, "rgba(255,255,255,0.95)");
-    grad.addColorStop(0.1, `rgba(${color},0.6)`);
-    grad.addColorStop(0.38, `rgba(${color},0.18)`);
+    grad.addColorStop(0, "rgba(255,255,255,0.9)");
+    grad.addColorStop(0.12, `rgba(${color},0.5)`);
+    grad.addColorStop(0.45, `rgba(${color},0.12)`);
     grad.addColorStop(1, `rgba(${color},0)`);
     g.fillStyle = grad;
     g.fillRect(-r, -r, lado, lado);
     g.restore();
   };
-  punta(1, 0.024);
-  punta(0.024, 1);
+  punta(1, 0.03);
+  punta(0.03, 1);
   return c;
 }
 
 /** Parámetros de centelleo: tres ondas de periodos distintos. */
 function centelleo(min, max) {
   return {
-    f1: TAU / azar(2600, 6500),
-    f2: TAU / azar(1200, 2600),
-    f3: TAU / azar(420, 860),
+    f1: TAU / azar(2400, 6200),
+    f2: TAU / azar(1100, 2500),
+    f3: TAU / azar(380, 820),
     p1: azar(0, TAU),
     p2: azar(0, TAU),
     p3: azar(0, TAU),
     amp: azar(min, max),
   };
-}
-
-/**
- * Estela en arco alrededor del polo, detrás de la estrella (el cielo gira en
- * sentido antihorario, así que la estela queda en el ángulo mayor). Se apaga
- * hacia la cola en tramos cortos con transparencia decreciente.
- */
-function trazarEstela(g, s, alfa, grosor, largo = ESTELA) {
-  const r = Math.hypot(s.dx, s.dy);
-  if (r < 36 || alfa <= 0) return;
-  const inicio = Math.atan2(s.dy, s.dx);
-  const arco = Math.min(largo, ESTELA_MAX_PX / r);
-  const tramos = Math.max(6, Math.ceil((r * arco) / 5));
-  g.lineWidth = grosor;
-  g.lineCap = "butt";
-  g.strokeStyle = `rgb(${COLORES[s.c][1]})`;
-  for (let i = 0; i < tramos; i++) {
-    const a0 = inicio + (arco * i) / tramos;
-    const a1 = inicio + (arco * (i + 1)) / tramos;
-    g.globalAlpha = alfa * Math.pow(1 - i / tramos, 1.5);
-    g.beginPath();
-    g.arc(0, 0, r, a0, a1 + 0.002);
-    g.stroke();
-  }
-  g.globalAlpha = 1;
 }
 
 export function Starfield() {
@@ -177,33 +161,37 @@ export function Starfield() {
     if (!canvas || !ctx) return;
 
     const ahorro = navigator.connection?.saveData === true;
-    // Con movimiento reducido o ahorro de datos: un cuadro fijo (con estelas).
+    // Con movimiento reducido o ahorro de datos: un cuadro fijo.
     const animar = !reduced && !ahorro;
     const movil = () => window.matchMedia("(max-width: 768px)").matches;
     const ratonFino = window.matchMedia("(pointer: fine)").matches;
 
     let vivo = true;
     let frame = 1000 / FPS;
-    let factor = 1; // 1 o 0.5 si el equipo va justo
-    let dprMax = 1.5; // 1 si el equipo va justo
+    let factor = 1; // 1 o 0.5 si el equipo va justo: centellea la mitad
+    let pausaUsuario = movimientoPausado();
+    const semilla = (Math.random() * 2 ** 32) >>> 0;
     let width = 0;
     let height = 0;
     let dpr = 1;
-    let lejana = null; // canvas fuera de pantalla: capa lejana con sus estelas
-    let media = null; // canvas fuera de pantalla: estelas de la capa media
-    let polo = { x: 0, y: 0 };
-    let radio = 0;
-    let angulo = 0; // negativo: antihorario en pantalla
-    let giroPendiente = 0; // giro extra por scroll, que se reparte suave
-    let ultimoScroll = window.scrollY;
-    let mouse = { x: 0, y: 0 }; // -1..1, suavizado
-    let mouseObjetivo = { x: 0, y: 0 };
-    let zonas = [];
+    // Campo donde se repiten las estrellas que centellean y las brillantes. Se
+    // fija al poblar: si solo cambia un poco el alto, nada se recoloca.
+    let campo = { w: 0, h: 0, w2: 0, h2: 0 };
+    let mosaicos = []; // un canvas por capa
+    let via = null; // Vía Láctea, del tamaño de la ventana más un margen
+    let viaMargen = 0;
     let titilan = [];
-    let medias = [];
     let brillantes = [];
     let fugaces = [];
     let proximaFugaz = 0;
+    let recorrido = 0; // px de deriva acumulados (capa de referencia)
+    let scrollSuave = window.scrollY;
+    // Scroll hecho mientras el cielo estaba detenido (pausa, pestaña oculta):
+    // no se recupera de golpe al volver, las capas siguen desde donde estaban.
+    let desfase = 0;
+    let mouse = { x: 0, y: 0 };
+    let mouseObjetivo = { x: 0, y: 0 };
+    let zonas = [];
     let intensidad = ALTA;
     let objetivo = ALTA;
     let rafId = null;
@@ -227,20 +215,6 @@ export function Starfield() {
       );
     };
 
-    // Centro de la señal en coordenadas del documento, sin transformaciones
-    // de la animación de entrada ni del parallax.
-    const medirPolo = () => {
-      const senal = document.querySelector(".senal");
-      if (!senal) return { x: width / 2, y: height * 0.32 }; // páginas sin hero
-      let x = senal.offsetWidth / 2;
-      let y = senal.offsetHeight / 2;
-      for (let el = senal; el; el = el.offsetParent) {
-        x += el.offsetLeft;
-        y += el.offsetTop;
-      }
-      return { x, y };
-    };
-
     const medirZonas = () => {
       const scroll = window.scrollY;
       zonas = Array.from(document.querySelectorAll("[data-cielo-claro]"), (el) => {
@@ -262,199 +236,180 @@ export function Starfield() {
       return f;
     };
 
-    /** Canvas cuadrado de 2 × radio con el origen en el polo. */
-    const capa = () => {
-      const lado = radio * 2;
-      const escala = Math.min(dpr, Math.sqrt(MAX_PIXELES) / lado);
+    /** Mosaico de una capa: estrellas fijas que se repiten sin costuras. */
+    const pintarMosaico = (capa, m) => {
+      const lado = m ? Math.round(capa.lado * 0.75) : capa.lado;
+      const escala = dpr;
       const c = document.createElement("canvas");
-      c.width = Math.floor(lado * escala);
-      c.height = Math.floor(lado * escala);
+      c.width = Math.round(lado * escala);
+      c.height = Math.round(lado * escala);
       const g = c.getContext("2d");
-      g.setTransform(escala, 0, 0, escala, radio * escala, radio * escala);
-      return [c, g];
+      g.setTransform(escala, 0, 0, escala, 0, 0);
+      // En móvil, algo más densas: en una pantalla pequeña el cielo se ve vacío.
+      const n = Math.round(((lado * lado) / 1e6) * capa.densidad * (m ? 1.2 : 1));
+      for (let i = 0; i < n; i++) {
+        const x = aleatorio() * lado;
+        const y = aleatorio() * lado;
+        // Ley de potencia: la mayoría pequeñas y tenues, pocas brillantes.
+        const b = Math.pow(aleatorio(), 2.2);
+        const tam = capa.tam[0] + (capa.tam[1] - capa.tam[0]) * b;
+        const c0 = colorAzar();
+        g.globalAlpha = capa.alfa[0] + (capa.alfa[1] - capa.alfa[0]) * b;
+        // Se repite en los bordes para que el mosaico case sin cortes.
+        for (const ox of [-lado, 0, lado]) {
+          for (const oy of [-lado, 0, lado]) {
+            const px = x + ox;
+            const py = y + oy;
+            if (px < -tam || py < -tam || px > lado + tam || py > lado + tam) continue;
+            g.drawImage(puntos[c0], px - tam / 2, py - tam / 2, tam, tam);
+          }
+        }
+      }
+      g.globalAlpha = 1;
+      return { canvas: c, lado };
     };
 
-    const poblar = () => {
-      const m = movil();
-      polo = medirPolo();
-      medirZonas();
-      radio = Math.ceil(
-        Math.max(
-          Math.hypot(polo.x, polo.y),
-          Math.hypot(width - polo.x, polo.y),
-          Math.hypot(polo.x, height - polo.y),
-          Math.hypot(width - polo.x, height - polo.y),
-        ) + MARGEN,
-      );
-
-      // Las cantidades se piensan para lo que se ve en la ventana y se
-      // reparten en todo el disco que gira.
-      const area = (width * height) / 1e6;
-      const disco = (Math.PI * radio * radio) / (width * height);
-      const n = (base) => Math.round(base * factor * disco);
-      const nPolvo = n(m ? 520 : Math.min(1400, Math.max(560, area * 640)));
-      const nFijas = n(m ? 470 : Math.min(1000, Math.max(460, area * 460)));
-      const nTitilan = n(m ? 100 : Math.min(200, Math.max(110, area * 100)));
-      const nMedias = n(m ? 26 : Math.min(54, Math.max(28, area * 28)));
-      const nBrillantes = Math.round((m ? 4 : 9) * disco);
-
-      // Franja de Vía Láctea, en coordenadas relativas al polo.
-      const ang = -Math.atan2(height, width) * 0.7;
+    /** Vía Láctea: nubes muy tenues en una franja diagonal, con grietas. */
+    const pintarVia = (m) => {
+      viaMargen = Math.round(height * 0.25);
+      const w = width;
+      const h = height + viaMargen * 2;
+      const c = document.createElement("canvas");
+      // A la resolución del lienzo: en cada cuadro se copia 1:1, sin remuestrear.
+      const escala = dpr;
+      c.width = Math.round(w * escala);
+      c.height = Math.round(h * escala);
+      const g = c.getContext("2d");
+      g.setTransform(escala, 0, 0, escala, 0, 0);
+      const ang = -Math.atan2(h, w) * 0.65;
       const dx = Math.cos(ang);
       const dy = Math.sin(ang);
       const nx = -dy;
       const ny = dx;
-      const cx = width * 0.08;
-      const cy = height * 0.16;
-      const sigma = Math.min(width, height) * (m ? 0.22 : 0.17);
-      const largo = radio * 2.2;
-      const dentro = (x, y) => x * x + y * y <= radio * radio;
-
-      const enDisco = () => {
-        const r = radio * Math.sqrt(Math.random());
-        const a = azar(0, TAU);
-        return [r * Math.cos(a), r * Math.sin(a)];
-      };
-      const enFranja = () => {
-        for (let i = 0; i < 6; i++) {
-          const t = azar(-largo / 2, largo / 2);
-          const o = gauss() * sigma;
-          const x = cx + dx * t + nx * o;
-          const y = cy + dy * t + ny * o;
-          if (dentro(x, y)) return [x, y];
-        }
-        return enDisco();
-      };
-      const posicion = (pFranja) => (Math.random() < pFranja ? enFranja() : enDisco());
-      // Ley de potencia: la mayoría tenues, unas pocas brillantes.
-      const estrella = (pFranja, bMin = 0) => {
-        const [x, y] = posicion(pFranja);
-        const b = bMin + (1 - bMin) * Math.pow(Math.random(), 2.4);
-        return { dx: x, dy: y, c: colorAzar(), b, a: 0.24 + 0.76 * b, tam: 2.4 + 5.2 * b };
-      };
-
-      // ---------- Capa lejana ----------
-      const [cl, lg] = capa();
-      lejana = cl;
-
-      // Resplandor difuso de la franja, frío con algo de cálido.
-      for (let i = 0; i < Math.round((m ? 10 : 16) * Math.sqrt(disco)); i++) {
+      const cx = w * 0.42;
+      const cy = h * 0.5;
+      const sigma = Math.min(w, h) * (m ? 0.2 : 0.15);
+      const largo = Math.hypot(w, h) * 1.1;
+      for (let i = 0; i < (m ? 14 : 22); i++) {
         const t = azar(-largo / 2, largo / 2);
         const o = gauss() * sigma * 0.35;
         const x = cx + dx * t + nx * o;
         const y = cy + dy * t + ny * o;
         const rad = sigma * azar(1.1, 2.1);
-        const tono = Math.random() < 0.6 ? "196,208,232" : "232,222,206";
-        const grad = lg.createRadialGradient(x, y, 0, x, y, rad);
-        grad.addColorStop(0, `rgba(${tono},${azar(0.022, 0.04).toFixed(3)})`);
+        const tono = aleatorio() < 0.6 ? "196,208,232" : "232,222,206";
+        const grad = g.createRadialGradient(x, y, 0, x, y, rad);
+        grad.addColorStop(0, `rgba(${tono},${azar(0.02, 0.036).toFixed(3)})`);
         grad.addColorStop(1, `rgba(${tono},0)`);
-        lg.fillStyle = grad;
-        lg.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+        g.fillStyle = grad;
+        g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
       }
-      // Grietas de polvo: recortan el resplandor a lo largo de la franja.
-      lg.globalCompositeOperation = "destination-out";
+      g.globalCompositeOperation = "destination-out";
       for (let i = 0; i < 4; i++) {
         const t = azar(-largo / 3, largo / 3);
         const o = azar(-0.25, 0.25) * sigma;
         const rad = sigma * azar(1.6, 2.8);
-        lg.save();
-        lg.translate(cx + dx * t + nx * o, cy + dy * t + ny * o);
-        lg.rotate(ang + azar(-0.12, 0.12));
-        lg.scale(1, azar(0.08, 0.16));
-        const grad = lg.createRadialGradient(0, 0, 0, 0, 0, rad);
+        g.save();
+        g.translate(cx + dx * t + nx * o, cy + dy * t + ny * o);
+        g.rotate(ang + azar(-0.12, 0.12));
+        g.scale(1, azar(0.08, 0.16));
+        const grad = g.createRadialGradient(0, 0, 0, 0, 0, rad);
         grad.addColorStop(0, "rgba(0,0,0,0.55)");
         grad.addColorStop(1, "rgba(0,0,0,0)");
-        lg.fillStyle = grad;
-        lg.fillRect(-rad, -rad, rad * 2, rad * 2);
-        lg.restore();
+        g.fillStyle = grad;
+        g.fillRect(-rad, -rad, rad * 2, rad * 2);
+        g.restore();
       }
-      lg.globalCompositeOperation = "source-over";
-
-      // Polvo de estrellas: puntos tenues que dan textura a la franja.
-      for (let i = 0; i < nPolvo; i++) {
-        const [x, y] = posicion(0.6);
-        const t = azar(0.8, 1.4);
-        lg.globalAlpha = azar(0.1, 0.3);
-        lg.fillStyle = `rgb(${COLORES[colorAzar()][1]})`;
-        lg.fillRect(x, y, t, t);
+      g.globalCompositeOperation = "source-over";
+      // Polvo de estrellas a lo largo de la franja.
+      for (let i = 0; i < (m ? 260 : 520); i++) {
+        const t = azar(-largo / 2, largo / 2);
+        const o = gauss() * sigma * 0.55;
+        const x = cx + dx * t + nx * o;
+        const y = cy + dy * t + ny * o;
+        if (x < 0 || y < 0 || x > w || y > h) continue;
+        const s = azar(0.7, 1.3);
+        g.globalAlpha = azar(0.08, 0.26);
+        g.fillStyle = `rgb(${COLORES[colorAzar()][1]})`;
+        g.fillRect(x, y, s, s);
       }
-      // Estrellas fijas, más densas dentro de la franja. Las más brillantes
-      // dejan estela; primero las estelas, encima las estrellas.
-      const fijas = Array.from({ length: nFijas }, () => estrella(0.38));
-      for (const s of fijas) {
-        if (s.b > 0.32) trazarEstela(lg, s, 0.1 + 0.32 * s.b, 0.7 + 0.55 * s.b);
-      }
-      for (const s of fijas) {
-        lg.globalAlpha = s.a;
-        lg.drawImage(puntos[s.c], s.dx - s.tam / 2, s.dy - s.tam / 2, s.tam, s.tam);
-      }
-      lg.globalAlpha = 1;
-
-      // ---------- Capa media: estrellas que centellean y brillantes ----------
-      titilan = Array.from({ length: nTitilan }, () => ({
-        ...estrella(0.25, 0.1),
-        ...centelleo(0.25, 0.6),
-      }));
-      medias = Array.from({ length: nMedias }, () => ({
-        ...estrella(0.15, 0.36),
-        ...centelleo(0.15, 0.35),
-      }));
-
-      // Brillantes separadas entre sí y, al empezar, lejos de los textos.
-      brillantes = [];
-      const distancia = m ? 120 : 170;
-      for (let intento = 0; brillantes.length < nBrillantes && intento < nBrillantes * 12; intento++) {
-        const [x, y] = enDisco();
-        if (Math.hypot(x, y) < 90) continue; // la señal ya ocupa el polo
-        if (atenuacion(polo.x + x, polo.y + y, 0) < 1) continue;
-        if (brillantes.some((b) => Math.hypot(b.dx - x, b.dy - y) < distancia)) continue;
-        const tam = azar(10, 14);
-        const c = COLORES_BRILLANTES[Math.floor(Math.random() * COLORES_BRILLANTES.length)];
-        brillantes.push({
-          dx: x,
-          dy: y,
-          c,
-          tinte: c === 0 ? 2 : 0, // color al que vira en el centelleo
-          a: azar(0.8, 1),
-          tam,
-          halo: tam * azar(3, 3.8),
-          largo: m ? azar(30, 50) : azar(40, 74),
-          fc: TAU / azar(700, 1400),
-          pc: azar(0, TAU),
-          ...centelleo(0.12, 0.26),
-        });
-      }
-
-      const [cm, mg] = capa();
-      media = cm;
-      for (const s of titilan) trazarEstela(mg, s, 0.14 + 0.36 * s.b, 0.8 + 0.6 * s.b);
-      for (const s of medias) trazarEstela(mg, s, 0.24 + 0.32 * s.b, 1.1 + 0.6 * s.b);
-      for (const s of brillantes) trazarEstela(mg, s, 0.42, 1.8, ESTELA * 1.2);
+      g.globalAlpha = 1;
+      via = c;
     };
 
-    /** Una estrella fugaz: cruza en diagonal hacia abajo y se apaga. */
+    const poblar = () => {
+      const m = movil();
+      medirZonas();
+      // Cada conjunto con su propia semilla: el mismo cielo en cada repoblado.
+      mosaicos = CAPAS.map((capa, i) => {
+        aleatorio = generador(semilla + 11 * (i + 1));
+        return pintarMosaico(capa, m);
+      });
+      aleatorio = generador(semilla + 97);
+      pintarVia(m);
+      campo = { w: width + 40, h: height + 180, w2: width + 80, h2: height + 220 };
+      const area = (width * height) / 1e6;
+      // Estrellas que centellean: viven en el campo y derivan con la capa media.
+      const nTitilan = Math.round(m ? 105 : Math.min(240, Math.max(130, area * 130)));
+      aleatorio = generador(semilla + 211);
+      titilan = Array.from({ length: nTitilan }, () => {
+        const b = Math.pow(aleatorio(), 1.8);
+        return {
+          x: aleatorio(),
+          y: aleatorio(),
+          c: colorAzar(),
+          a: 0.45 + 0.5 * b,
+          tam: 2.8 + 3 * b,
+          ...centelleo(0.3, 0.75),
+        };
+      });
+      // Brillantes: pocas, separadas, con destello fino; derivan con la cercana.
+      const nBrillantes = m ? 5 : Math.min(9, Math.max(5, Math.round(area * 5)));
+      aleatorio = generador(semilla + 307);
+      brillantes = [];
+      for (let intento = 0; brillantes.length < nBrillantes && intento < 200; intento++) {
+        const x = aleatorio();
+        const y = aleatorio();
+        if (brillantes.some((b) => Math.hypot((b.x - x) * width, (b.y - y) * height) < (m ? 120 : 200))) continue;
+        const c = aleatorio() < 0.45 ? 1 : aleatorio() < 0.5 ? 0 : 2;
+        brillantes.push({
+          x,
+          y,
+          c,
+          tinte: c === 1 ? 2 : 1, // tono al que vira un instante
+          a: azar(0.8, 1),
+          tam: azar(5.5, 7.5),
+          halo: azar(13, 18),
+          largo: m ? azar(18, 26) : azar(22, 34),
+          fc: TAU / azar(900, 1700),
+          pc: azar(0, TAU),
+          ...centelleo(0.15, 0.32),
+        });
+      }
+      aleatorio = Math.random; // las fugaces, al azar de verdad
+    };
+
+    /** Una estrella fugaz: aparece, cruza en diagonal y se apaga. */
     const lanzarFugaz = (t) => {
       const m = movil();
-      const sentido = Math.random() < 0.5 ? 1 : -1;
-      const ang = azar(0.3, 0.75); // bajo la horizontal
-      const vel = azar(m ? 620 : 820, m ? 980 : 1380); // px/s
+      const sentido = aleatorio() < 0.5 ? 1 : -1;
+      const ang = azar(0.22, 0.62); // bajo la horizontal
+      const vel = azar(m ? 620 : 760, m ? 980 : 1300); // px/s
       fugaces.push({
-        x: sentido > 0 ? azar(-0.05, 0.62) * width : azar(0.38, 1.05) * width,
-        y: azar(-0.04, 0.5) * height,
+        x: sentido > 0 ? azar(-0.05, 0.6) * width : azar(0.4, 1.05) * width,
+        y: azar(-0.05, 0.55) * height,
         vx: Math.cos(ang) * vel * sentido,
         vy: Math.sin(ang) * vel,
         inicio: t,
-        vida: azar(620, 1150),
-        cola: azar(m ? 90 : 140, m ? 170 : 290),
-        c: COLORES_BRILLANTES[Math.floor(Math.random() * COLORES_BRILLANTES.length)],
+        vida: azar(700, 1250),
+        cola: azar(m ? 90 : 130, m ? 170 : 260),
+        grosor: azar(1.4, 2.2),
+        c: aleatorio() < 0.6 ? 0 : 1,
       });
-      proximaFugaz = t + azar(m ? 2000 : 1300, m ? 4800 : 3800);
+      proximaFugaz = t + azar(m ? 1800 : 1200, m ? 4200 : 3300);
     };
 
     const dibujarFugaces = (t, scroll) => {
       if (!fugaces.length) return;
-      const grosor = movil() ? 1.4 : 1.8;
-      ctx.lineCap = "round";
       fugaces = fugaces.filter((f) => t - f.inicio < f.vida);
       for (const f of fugaces) {
         const e = t - f.inicio;
@@ -462,25 +417,33 @@ export function Starfield() {
         const hx = f.x + (f.vx * e) / 1000;
         const hy = f.y + (f.vy * e) / 1000;
         const v = Math.hypot(f.vx, f.vy);
-        const cola = f.cola * Math.min(1, e / 220);
-        const tx = hx - (f.vx / v) * cola;
-        const ty = hy - (f.vy / v) * cola;
-        const a = Math.pow(Math.sin(Math.PI * p), 0.7) * intensidad * atenuacion(hx, hy, scroll);
+        const ux = f.vx / v;
+        const uy = f.vy / v;
+        // La estela crece al aparecer y se acorta al apagarse.
+        const cola = f.cola * Math.min(1, e / 180) * (p > 0.7 ? 1 - (p - 0.7) / 0.6 : 1);
+        const tx = hx - ux * cola;
+        const ty = hy - uy * cola;
+        // Entra rápido y se desvanece despacio.
+        const env = p < 0.12 ? p / 0.12 : Math.pow(1 - (p - 0.12) / 0.88, 1.4);
+        const a = env * intensidad * atenuacion(hx, hy, scroll);
         if (a <= 0.01) continue;
         const color = COLORES[f.c][1];
         const grad = ctx.createLinearGradient(hx, hy, tx, ty);
         grad.addColorStop(0, `rgba(255,255,255,${(0.95 * a).toFixed(3)})`);
-        grad.addColorStop(0.12, `rgba(${color},${(0.6 * a).toFixed(3)})`);
+        grad.addColorStop(0.15, `rgba(${color},${(0.6 * a).toFixed(3)})`);
         grad.addColorStop(1, `rgba(${color},0)`);
+        // Estela en cuña: ancha en la cabeza, fina en la cola.
+        const w = f.grosor / 2;
         ctx.globalAlpha = 1;
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = grosor;
+        ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.moveTo(hx, hy);
+        ctx.moveTo(hx - uy * w, hy + ux * w);
         ctx.lineTo(tx, ty);
-        ctx.stroke();
+        ctx.lineTo(hx + uy * w, hy - ux * w);
+        ctx.closePath();
+        ctx.fill();
         ctx.globalAlpha = a;
-        ctx.drawImage(puntos[f.c], hx - 6, hy - 6, 12, 12);
+        ctx.drawImage(puntos[f.c], hx - 4, hy - 4, 8, 8);
       }
       ctx.globalAlpha = 1;
     };
@@ -489,65 +452,65 @@ export function Starfield() {
       if (!width || !height) return; // ventana sin tamaño (iframe oculto)
       ctx.clearRect(0, 0, width, height);
       const scroll = window.scrollY;
+      // En el cuadro fijo (movimiento reducido) el scroll no mueve nada.
+      const sv = animar ? scrollSuave - desfase : 0;
+      // Al píxel de dispositivo: copia 1:1, sin remuestrear (la mitad de costo).
+      const px = (v) => Math.round(v * dpr) / dpr;
 
-      // Capa lejana.
-      const lx = polo.x + mouse.x * MOUSE_LEJANA;
-      const ly = polo.y + mouse.y * MOUSE_LEJANA;
-      ctx.save();
+      // Vía Láctea: paralaje mínimo y acotado.
       ctx.globalAlpha = intensidad;
-      ctx.translate(lx, ly);
-      ctx.rotate(angulo);
-      ctx.drawImage(lejana, -radio, -radio, radio * 2, radio * 2);
-      ctx.restore();
+      const vy = px(-viaMargen - Math.min(Math.max(sv * 0.012, 0), viaMargen));
+      ctx.drawImage(via, 0, vy, width, height + viaMargen * 2);
 
-      // Capa media: estelas y, encima, sus estrellas.
-      const am = angulo * PARALAJE_MEDIO;
-      const mx = polo.x + mouse.x * MOUSE_MEDIA;
-      const my = polo.y + mouse.y * MOUSE_MEDIA;
-      ctx.save();
-      ctx.globalAlpha = intensidad;
-      ctx.translate(mx, my);
-      ctx.rotate(am);
-      ctx.drawImage(media, -radio, -radio, radio * 2, radio * 2);
-      ctx.restore();
-
-      const cos = Math.cos(am);
-      const sin = Math.sin(am);
-      const punto = (s, borde) => {
-        const x = mx + s.dx * cos - s.dy * sin;
-        const y = my + s.dx * sin + s.dy * cos;
-        return x < -borde || y < -borde || x > width + borde || y > height + borde ? null : [x, y];
-      };
-
-      for (const lista of [titilan, medias]) {
-        for (const s of lista) {
-          const p = punto(s, 8);
-          if (!p) continue;
-          ctx.globalAlpha = s.a * brillo(s, t) * intensidad;
-          ctx.drawImage(puntos[s.c], p[0] - s.tam / 2, p[1] - s.tam / 2, s.tam, s.tam);
+      // Capas de estrellas: deriva + paralaje de scroll + ratón, en mosaico.
+      CAPAS.forEach((capa, i) => {
+        const { canvas: c, lado } = mosaicos[i];
+        const avance = recorrido * (capa.vel / CAPAS[1].vel);
+        const ox = modulo(DERIVA.x * avance + mouse.x * capa.raton, lado);
+        const oy = modulo(DERIVA.y * avance - sv * capa.scroll + mouse.y * capa.raton, lado);
+        for (let x = ox - lado; x < width; x += lado) {
+          if (x + lado <= 0) continue;
+          for (let y = oy - lado; y < height; y += lado) {
+            if (y + lado <= 0) continue;
+            ctx.drawImage(c, px(x), px(y), lado, lado);
+          }
         }
+      });
+
+      // Estrellas que centellean (capa media). Si el equipo va justo, la mitad.
+      const { w: W, h: H, w2: W2, h2: H2 } = campo;
+      const avM = recorrido;
+      const mx = DERIVA.x * avM + mouse.x * CAPAS[1].raton;
+      const my = DERIVA.y * avM - sv * CAPAS[1].scroll + mouse.y * CAPAS[1].raton;
+      for (let i = 0; i < titilan.length; i += factor < 1 ? 2 : 1) {
+        const s = titilan[i];
+        const x = modulo(s.x * W + mx, W) - 20;
+        const y = modulo(s.y * H + my, H) - 90;
+        ctx.globalAlpha = s.a * brillo(s, t) * intensidad;
+        ctx.drawImage(puntos[s.c], x - s.tam / 2, y - s.tam / 2, s.tam, s.tam);
       }
+
+      // Brillantes (capa cercana): punto, halo corto y destello fino.
+      const avC = recorrido * (CAPAS[2].vel / CAPAS[1].vel);
+      const cx = DERIVA.x * avC + mouse.x * CAPAS[2].raton;
+      const cy = DERIVA.y * avC - sv * CAPAS[2].scroll + mouse.y * CAPAS[2].raton;
       for (const s of brillantes) {
-        const p = punto(s, s.largo);
-        if (!p) continue;
-        const [x, y] = p;
+        const x = modulo(s.x * W2 + cx, W2) - 40;
+        const y = modulo(s.y * H2 + cy, H2) - 110;
         const b = brillo(s, t);
         const k = s.a * intensidad * atenuacion(x, y, scroll);
-        ctx.globalAlpha = k * 0.18 * b;
+        ctx.globalAlpha = k * 0.22 * b;
         ctx.drawImage(puntos[s.c], x - s.halo / 2, y - s.halo / 2, s.halo, s.halo);
-        // El largo y el brillo de las puntas siguen al centelleo.
-        const largo = s.largo * (0.78 + 0.22 * b);
-        ctx.globalAlpha = k * (0.38 + 0.5 * b);
+        const largo = s.largo * (0.8 + 0.2 * b);
+        ctx.globalAlpha = k * (0.3 + 0.45 * b);
         ctx.drawImage(puntas[s.c], x - largo / 2, y - largo / 2, largo, largo);
-        ctx.globalAlpha = k * (0.72 + 0.28 * b);
+        ctx.globalAlpha = k * (0.75 + 0.25 * b);
         ctx.drawImage(puntos[s.c], x - s.tam / 2, y - s.tam / 2, s.tam, s.tam);
-        // Centelleo de color: el núcleo vira un instante hacia otro tono.
         if (animar) {
           const tinte = Math.sin(t * s.fc + s.pc);
-          if (tinte > 0.4) {
-            const tam = s.tam * 1.25;
-            ctx.globalAlpha = k * 0.55 * (tinte - 0.4);
-            ctx.drawImage(puntos[s.tinte], x - tam / 2, y - tam / 2, tam, tam);
+          if (tinte > 0.5) {
+            ctx.globalAlpha = k * 0.5 * (tinte - 0.5);
+            ctx.drawImage(puntos[s.tinte], x - s.tam / 2, y - s.tam / 2, s.tam, s.tam);
           }
         }
       }
@@ -557,27 +520,23 @@ export function Starfield() {
 
     const mover = (dt, t) => {
       const seg = dt / 1000;
-      // Giro constante más el que dejó el scroll, repartido en ~0,4 s. Se
-      // acumula en un rango amplio para que la capa media no salte al dar la
-      // vuelta: el ángulo solo se reinicia cada 5 vueltas.
-      const extra = giroPendiente * (1 - Math.exp(-seg / 0.4));
-      giroPendiente -= extra;
-      angulo = (angulo - OMEGA * dt - extra) % (TAU * 5);
-      // Paralaje del ratón, suave (~0,6 s).
+      recorrido += CAPAS[1].vel * seg;
+      // El paralaje sigue al scroll con un leve retardo (~0,2 s): nunca brusco.
+      scrollSuave += (window.scrollY - scrollSuave) * (1 - Math.exp(-seg / 0.2));
       const km = 1 - Math.exp(-seg / 0.6);
       mouse.x += (mouseObjetivo.x - mouse.x) * km;
       mouse.y += (mouseObjetivo.y - mouse.y) * km;
-      // Transición de intensidad suave (~0,8 s).
       intensidad += (objetivo - intensidad) * (1 - Math.exp(-seg / 0.25));
-      if (!proximaFugaz) proximaFugaz = t + 900;
-      else if (t >= proximaFugaz && !document.hidden) lanzarFugaz(t);
+      if (!proximaFugaz) proximaFugaz = t + 700;
+      else if (t >= proximaFugaz) lanzarFugaz(t);
     };
 
     // Vigila el ritmo real entre cuadros, que incluye el rasterizado del
     // navegador. Se ignoran los primeros segundos (carga de la página) y los
     // saltos sueltos (pestaña en segundo plano, una tarea larga): solo si la
-    // mayoría de los cuadros llega tarde de forma sostenida, baja la
-    // resolución del lienzo, la cantidad de estrellas y el ritmo.
+    // mayoría de los cuadros llega tarde de forma sostenida, baja el ritmo y
+    // centellea la mitad de las estrellas. El cielo no se vuelve a poblar:
+    // nada cambia de sitio.
     let calentamiento = 90;
     const vigilarPresupuesto = (intervalo) => {
       if (factor < 1 || tiempos.length >= 90 || !(intervalo > 0) || intervalo > 250) return;
@@ -591,8 +550,6 @@ export function Starfield() {
         if (p75 > frame * 1.5) {
           factor = 0.5;
           frame = 1000 / 20;
-          dprMax = 1;
-          medir(true);
         }
       }
     };
@@ -629,9 +586,11 @@ export function Starfield() {
     }
 
     const arrancar = () => {
-      if (!animar || rafId != null || timerCuadro != null || document.hidden) return;
+      if (!animar || pausaUsuario || rafId != null || timerCuadro != null || document.hidden) return;
       ultimo = 0;
       previo = 0;
+      desfase += window.scrollY - scrollSuave;
+      scrollSuave = window.scrollY;
       rafId = requestAnimationFrame(tick);
     };
     function detener() {
@@ -647,50 +606,47 @@ export function Starfield() {
 
     const fijarObjetivo = (nuevo) => {
       objetivo = nuevo;
-      if (animar) arrancar();
+      if (animar && !pausaUsuario) arrancar();
       else {
         intensidad = nuevo;
-        dibujar(0);
+        dibujar(animar ? performance.now() : 0);
       }
     };
 
+    // El tamaño lo da el CSS: todo el ancho y el alto grande de la pantalla
+    // (100lvh), que no cambia cuando la barra del navegador aparece o se va.
+    const caja = () => [canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight];
     const medir = (repoblar) => {
-      width = window.innerWidth;
-      height = window.innerHeight;
-      dpr = Math.min(window.devicePixelRatio || 1, dprMax);
+      [width, height] = caja();
+      dpr = Math.min(window.devicePixelRatio || 1, DPR_MAX);
       canvas.width = Math.floor(width * dpr);
       canvas.height = Math.floor(height * dpr);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if (repoblar || !radio) poblar();
+      if (repoblar || !mosaicos.length) {
+        poblar();
+        ultimoAncho = width;
+        ultimoAlto = height;
+      }
       dibujar(performance.now());
     };
 
-    // En móvil la barra del navegador cambia el alto al hacer scroll: solo se
-    // regenera el cielo si el cambio es grande.
-    let ultimoAncho = window.innerWidth;
-    let ultimoAlto = window.innerHeight;
+    // Si el lienzo no cambió de tamaño (barra del navegador), no se toca. Con
+    // un cambio de ancho o de alto grande se vuelve a poblar con la misma
+    // semilla: las estrellas conservan su sitio.
+    let ultimoAncho = 0;
+    let ultimoAlto = 0;
     let timer = null;
     const onResize = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        const repoblar = w !== ultimoAncho || Math.abs(h - ultimoAlto) > 160;
-        ultimoAncho = w;
-        ultimoAlto = h;
+        const [w, h] = caja();
+        const dprNuevo = Math.min(window.devicePixelRatio || 1, DPR_MAX);
+        if (w === width && h === height && dprNuevo === dpr) return;
+        const repoblar = w !== ultimoAncho || Math.abs(h - ultimoAlto) > 160 || dprNuevo !== dpr;
         medir(repoblar);
       }, 150);
     };
-
-    // Scroll: el cielo gira hacia adelante según lo recorrido.
-    const onScroll = () => {
-      const y = window.scrollY;
-      if (animar) giroPendiente += Math.min(Math.abs(y - ultimoScroll), 1500) * GIRO_SCROLL;
-      ultimoScroll = y;
-    };
-    // Ratón: las capas se desplazan hacia el lado contrario, a distinto ritmo.
+    // Ratón: las capas se desplazan apenas hacia el lado contrario.
     const onPointer = (e) => {
       if (e.pointerType !== "mouse" || !width) return;
       mouseObjetivo = { x: -((e.clientX / width) * 2 - 1), y: -((e.clientY / height) * 2 - 1) };
@@ -698,16 +654,11 @@ export function Starfield() {
 
     medir(true);
 
-    // Con las fuentes cargadas el hero puede cambiar de alto y mover la señal:
-    // el cielo se recoloca sin regenerarse, y los textos se vuelven a medir.
+    // Con las fuentes cargadas el hero puede cambiar de alto: se vuelven a
+    // medir los textos que atenúan los destellos.
     document.fonts?.ready.then(() => {
       if (!vivo) return;
-      const nuevo = medirPolo();
-      if (Math.hypot(nuevo.x - polo.x, nuevo.y - polo.y) > MARGEN / 2) poblar();
-      else {
-        polo = nuevo;
-        medirZonas();
-      }
+      medirZonas();
       dibujar(performance.now());
     });
 
@@ -737,8 +688,13 @@ export function Starfield() {
       if (document.hidden) detener();
       else arrancar();
     };
+    // «Pausar animaciones»: se queda quieto en el cuadro actual.
+    const quitarMovimiento = alCambiarMovimiento(() => {
+      pausaUsuario = movimientoPausado();
+      if (pausaUsuario) detener();
+      else arrancar();
+    });
     window.addEventListener("resize", onResize);
-    window.addEventListener("scroll", onScroll, { passive: true });
     if (animar && ratonFino) window.addEventListener("pointermove", onPointer, { passive: true });
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -747,14 +703,14 @@ export function Starfield() {
       detener();
       clearTimeout(timer);
       io?.disconnect();
+      quitarMovimiento();
       window.removeEventListener("resize", onResize);
-      window.removeEventListener("scroll", onScroll);
       window.removeEventListener("pointermove", onPointer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [reduced]);
 
-  return <canvas ref={canvasRef} aria-hidden="true" className="starfield pointer-events-none fixed inset-0 z-0" />;
+  return <canvas ref={canvasRef} aria-hidden="true" className="starfield pointer-events-none fixed left-0 top-0 z-0 h-lvh w-full" />;
 }
 
 export default Starfield;

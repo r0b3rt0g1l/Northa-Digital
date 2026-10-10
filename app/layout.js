@@ -4,6 +4,7 @@ import { sora, manrope, jetbrainsMono } from "@/lib/fonts";
 import { buildMetadata, defaultViewport } from "@/lib/seo";
 import { Nav } from "@/components/nav/Nav";
 import { Footer } from "@/components/footer/Footer";
+import { PausaMovimiento } from "@/components/ui/PausaMovimiento";
 import { Starfield } from "@/components/fondo/Starfield";
 import { GlassPointer } from "@/components/fondo/GlassPointer";
 import { Cursor } from "@/components/cursor/Cursor";
@@ -27,6 +28,7 @@ export default function RootLayout({ children }) {
         >
           Saltar al contenido principal
         </a>
+        <PausaMovimiento salto />
         <Starfield />
         <GlassPointer />
         <Cursor />

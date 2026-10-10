@@ -12,40 +12,43 @@ cada bloque responde una sola pregunta.
 | Seguridad | ¿Puedo confiar en ellos? |
 | Escena final y pie | ¿Cómo los contacto? |
 
-La oferta completa vive en el banner de cartas de «Lo que construimos», en el
+La oferta completa vive en el banner de servicios de «Lo que construimos», en el
 menú «Servicios» de la barra superior y en el asistente.
 
 ## Concepto visual: "Signal in the dark"
 
-- **Fondo:** grafito profundo con un cielo vivo en canvas. Las estrellas tienen
-  brillo y color de cielo real, hay una franja tenue de Vía Láctea con polvo, el
-  centelleo es individual e irregular y las más brillantes llevan destello de
-  difracción. Todo el cielo gira alrededor de la señal del hero, la estrella polar,
-  y cada estrella deja una estela en arco, como en una foto de larga exposición:
-  las estelas siempre se ven. Dos capas con profundidad (la media gira un poco más
-  rápido), paralaje con el ratón, giro extra al hacer scroll y estrellas fugaces
-  cada pocos segundos. Brilla al 100 % en el hero y la escena final y al 82 %
-  detrás del contenido.
+- **Fondo:** un espacio en vivo en canvas. Tres capas de estrellas con
+  profundidad derivan despacio, cada una a su ritmo; las estrellas son puntos
+  nítidos de tamaños, brillos y colores suaves (blanco, azul claro y amarillo
+  pálido), muchas centellean a su propio ritmo y las más brillantes llevan un
+  destello fino. Hay una franja tenue de Vía Láctea y estrellas fugaces cada pocos
+  segundos, con una estela que se afina y se apaga con suavidad. Al hacer scroll
+  las capas se desplazan a distinto ritmo (paralaje), con un leve retardo para que
+  nunca sea brusco. Brilla al 100 % en el hero y la escena final y al 85 % detrás
+  del contenido. El lienzo mide el alto grande de la pantalla, así que la barra
+  del navegador del celular no mueve las estrellas, y las posiciones salen de una
+  semilla fija: al girar el teléfono conservan su sitio.
 - **Señal:** el hero gira alrededor de un punto de luz con destello de ocho puntas,
   la estrella polar de la marca. Debajo, un indicador «Explorar» invita a bajar. La
   página nunca se desplaza sola.
-- **Liquid Glass:** un solo material en todo el sitio (barra, menús, tarjetas,
-  botones secundarios, banners, secciones destacadas, asistente y controles):
-  fondo translúcido con desenfoque real, borde luminoso y reflejo especular. Con el
-  cursor encima, el borde se enciende donde está el puntero, el reflejo lo sigue y
-  las tarjetas se inclinan en 3D. El vidrio dentro de otro vidrio no vuelve a
+- **Liquid Glass:** un solo material, translúcido y ligero, en barra, menús,
+  tarjetas, botones secundarios, banners, secciones, pie, asistente y controles:
+  desenfoque real del fondo, bordes suaves con filo de luz, brillo interno sutil y
+  reflejos delicados. Con el cursor encima, el borde se enciende donde está el
+  puntero y el reflejo lo sigue. El vidrio dentro de otro vidrio no vuelve a
   desenfocar (`glass-interior`), para cuidar el rendimiento.
 - **Lo que construimos:** el sello giratorio de Northa, seis beneficios cortos
   (presencia digital, información ordenada, seguridad, trámites, comunicación y
-  administración) y un banner de servicios en cartas: al llegar a la sección las
-  cartas salen del mazo en cascada y rebotan hasta su lugar dejando una estela,
-  como al ganar en Solitario («Repartir de nuevo» lo repite). Después quedan
-  quietas. Cada carta abre el asistente con ese servicio.
-- **Portafolio:** la página de inicio real de cada uno de los 15 portales
-  municipales: un widget con forma de ventana de navegador que pasa solo por todos
-  (cada 2,6 s, con pausa) y una tarjeta por portal con su captura, el nombre, el
-  dominio y «Visitar portal». Si falta una captura, se muestra un diseño con el
-  color institucional del municipio.
+  administración) y un banner de servicios en una franja de vidrio: avanza
+  siempre hacia la derecha en un bucle continuo, despacio para leerlo, y cada
+  servicio da un brinco lento y rítmico, como conejos en fila. Tiene botón de
+  pausa y se detiene al pasar el puntero, al enfocarlo con teclado, al tocarlo o
+  fuera de pantalla. Cada servicio abre el asistente.
+- **Portafolio:** los 15 portales municipales en un solo contenedor de vidrio del
+  ancho del sitio, todos a la vista: cuadrícula de 5 columnas en escritorio, 3 en
+  tableta y una lista compacta en celular. Cada uno muestra su página de inicio
+  real, el nombre y el dominio, y abre el portal. Si falta una captura, se muestra
+  un diseño con el color institucional del municipio.
 - **Seguridad:** cuatro puntos claros (acceso protegido con VPN, login
   administrativo seguro, protección para portales municipales, control de acceso
   y monitoreo) y una demostración visual: túnel VPN, login seguro y panel
@@ -58,12 +61,13 @@ menú «Servicios» de la barra superior y en el asistente.
   se vuelve una barra de escritura y en los campos vuelve el cursor del sistema.
 - **Tipografía:** Sora para títulos, Manrope para texto y JetBrains Mono para
   etiquetas cortas.
-- Se mueven de forma continua el cielo, los destellos de la señal, la
-  demostración de seguridad y el widget del portafolio (con botón de pausa; se
-  detiene fuera de pantalla). El reparto de cartas dura unos segundos y se detiene
-  solo. Todo respeta `prefers-reduced-motion`: el cielo queda quieto (con sus
-  estelas), las cartas aparecen en su lugar y el widget no avanza solo. El
-  contenido funciona sin JavaScript.
+- Se mueven de forma continua el cielo, los destellos de la señal y el banner de
+  servicios. El botón «Pausar animaciones» del pie los detiene todos y la
+  elección se recuerda en el navegador (`lib/movimiento.js`); el banner tiene
+  además su propio botón de pausa. La demostración de Seguridad dura menos de
+  5 s y se detiene sola. Todo respeta `prefers-reduced-motion`: el cielo queda
+  como un cuadro fijo (tampoco se mueve con el scroll) y el banner se muestra
+  fijo, centrado y en varias filas. El contenido funciona sin JavaScript.
 
 Los valores viven en `app/globals.css` (tokens en `@theme`) y en `lib/fonts.js`.
 
@@ -81,7 +85,7 @@ Los datos salen de un solo lugar, `lib/site.js`:
 
 El sitio no tiene formulario ni envía datos a ningún servidor. Los botones
 «Cuéntanos tu proyecto» con el ícono de WhatsApp abren WhatsApp directo; el
-asistente se abre con su botón flotante, con las cartas de servicios o desde el
+asistente se abre con su botón flotante, con el banner de servicios o desde el
 menú «Servicios».
 
 ## Asistente del sitio

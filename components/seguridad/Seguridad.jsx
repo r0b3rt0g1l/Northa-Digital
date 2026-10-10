@@ -23,7 +23,7 @@ export function Seguridad() {
           </div>
           <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
             {seguridad.puntos.map((p) => (
-              <li key={p.titulo} className="seguridad-punto">
+              <li key={p.titulo} className="seguridad-punto glass glass-interior">
                 <span className="beneficio-icono" aria-hidden="true">
                   <p.Icon className="h-5 w-5" strokeWidth={1.6} />
                 </span>

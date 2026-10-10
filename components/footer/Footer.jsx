@@ -2,6 +2,7 @@ import { Mail } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { BotonAsistente } from "@/components/ui/BotonAsistente";
 import { BotonWhatsapp } from "@/components/ui/BotonWhatsapp";
+import { PausaMovimiento } from "@/components/ui/PausaMovimiento";
 import { site } from "@/lib/site";
 import { navSections } from "@/lib/content/nav";
 
@@ -20,8 +21,8 @@ export function Footer() {
   const { contact } = site;
 
   return (
-    <footer id="contacto" aria-labelledby="contacto-title" className="relative z-10 border-t border-line px-5 pb-28 pt-14 sm:px-8 sm:pt-16">
-      <div className="mx-auto grid w-full max-w-[1200px] gap-10 md:grid-cols-[1fr_1.2fr_auto] md:gap-12">
+    <footer id="contacto" aria-labelledby="contacto-title" className="relative z-10 px-5 pb-28 pt-10 sm:px-8 sm:pt-12">
+      <div className="glass mx-auto grid w-full max-w-[1200px] gap-10 rounded-[32px] p-6 sm:p-10 md:grid-cols-[1fr_1.2fr_auto] md:gap-12">
         <div className="flex flex-col gap-4">
           {/* Ancla dentro de la página; desde la 404 lleva al inicio. */}
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
@@ -70,9 +71,12 @@ export function Footer() {
           </ul>
         </nav>
       </div>
-      <p className="mx-auto mt-10 w-full max-w-[1200px] border-t border-line pt-6 text-[13px] text-faint">
-        © {year} {site.name}
-      </p>
+      <div className="mx-auto mt-4 flex w-full max-w-[1200px] flex-wrap items-center justify-between gap-x-6 px-2">
+        <p className="m-0 text-[13px] text-faint">
+          © {year} {site.name}
+        </p>
+        <PausaMovimiento className="-mr-2" />
+      </div>
     </footer>
   );
 }

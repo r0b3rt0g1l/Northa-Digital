@@ -1,19 +1,18 @@
 import { Reveal } from "@/components/ui/Reveal";
 import { Palabras } from "@/components/ui/Palabras";
-import { BarajaServicios } from "./BarajaServicios";
+import { BarraServicios } from "./BarraServicios";
 import { SelloNortha } from "./SelloNortha";
 import { beneficios } from "@/lib/content/servicios";
 
 /**
  * Lo que construimos: una frase directa, el sello de Northa, los beneficios
- * para el cliente en seis piezas cortas y el banner de servicios en cartas,
- * que se reparten como al ganar en Solitario. Cada carta abre el asistente
- * con ese servicio.
+ * para el cliente en seis piezas cortas y el banner de servicios que avanza
+ * hacia la derecha con un brinco lento. Cada servicio abre el asistente.
  */
 export function Servicios() {
   return (
-    <section id="servicios" aria-labelledby="servicios-title" className="relative py-24 sm:py-32">
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-12 px-5 sm:gap-16 sm:px-8">
+    <section id="servicios" aria-labelledby="servicios-title" className="relative px-5 py-24 sm:px-8 sm:py-32">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-12 sm:gap-16">
         <Reveal className="flex flex-col items-start gap-8 md:flex-row md:items-center md:justify-between md:gap-12">
           <div className="flex max-w-[680px] flex-col gap-5">
             <p className="eyebrow m-0">Servicios</p>
@@ -44,7 +43,7 @@ export function Servicios() {
         </Reveal>
 
         <Reveal delay={120}>
-          <BarajaServicios />
+          <BarraServicios />
         </Reveal>
       </div>
     </section>

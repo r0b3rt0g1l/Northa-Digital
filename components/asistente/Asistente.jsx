@@ -145,7 +145,7 @@ export function Asistente() {
         }}
         style={{ "--d": "900ms" }}
         className={
-          "glass glass-hover lanzador-in fixed bottom-4 right-4 z-[55] inline-flex h-12 items-center gap-2.5 rounded-full text-sm font-medium text-text max-sm:w-12 max-sm:justify-center sm:bottom-6 sm:right-6 sm:pl-3.5 sm:pr-5" +
+          "glass-strong glass-hover lanzador-in fixed bottom-4 right-4 z-[55] inline-flex h-12 items-center gap-2.5 rounded-full text-sm font-medium text-text max-sm:w-12 max-sm:justify-center sm:bottom-6 sm:right-6 sm:pl-3.5 sm:pr-5" +
           (abierto ? " invisible" : "")
         }
       >

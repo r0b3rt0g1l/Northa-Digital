@@ -611,9 +611,9 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
       aria-labelledby={`${uid}-titulo`}
       aria-describedby={`${uid}-desc ${uid}-aviso`}
       data-asistente=""
-      className="glass-strong panel-opaco panel-in fixed inset-x-3 bottom-3 z-[60] flex max-h-[min(86svh,700px)] flex-col overflow-hidden rounded-[24px] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[400px] sm:max-h-[min(680px,calc(100svh-110px))]"
+      className="glass-strong panel-opaco panel-in fixed inset-x-3 bottom-3 z-[60] flex max-h-[min(86svh,700px)] flex-col overflow-hidden rounded-[24px] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[400px] sm:max-h-[min(680px,calc(100svh-110px))] [@media(max-height:480px)]:top-2 [@media(max-height:480px)]:bottom-2! [@media(max-height:480px)]:max-h-[calc(100svh-16px)]!"
     >
-      <header className="flex items-center gap-3 border-b border-line py-3 pl-4 pr-2">
+      <div className="flex shrink-0 items-center gap-3 border-b border-line py-3 pl-4 pr-2">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] border border-line-strong bg-gradient-to-b from-[#171a20] to-[#0e1014]">
           <StarIcon className="h-5 w-5" />
         </span>
@@ -642,14 +642,14 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
         >
           <X className="h-5 w-5" aria-hidden="true" />
         </button>
-      </header>
+      </div>
 
       <div
         ref={listaRef}
         role="log"
         aria-live="polite"
         aria-label="Conversación"
-        className="flex min-h-[120px] flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 py-4"
+        className="flex min-h-[min(120px,18svh)] flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 py-4"
       >
         {mensajes.map((m) =>
           m.autor === "usuario" ? (

@@ -3,13 +3,16 @@
 import { Button } from "./Button";
 import { WhatsAppIcon } from "./WhatsAppIcon";
 import { abrirWhatsapp, enlaceWhatsapp, MENSAJE_WHATSAPP } from "@/lib/whatsapp";
+import { usePestanaNueva } from "@/hooks/usePestanaNueva";
 
 /**
  * Llamado a la acción con el ícono de WhatsApp: abre el chat con Northa
  * directamente (app en celular, WhatsApp Web en computadora) con un mensaje
  * listo que el visitante revisa y envía. Sin JavaScript es un enlace wa.me.
+ * En computadora, el nombre accesible avisa que se abre en una pestaña nueva.
  */
 export function BotonWhatsapp({ texto = MENSAJE_WHATSAPP, children = "Escríbenos por WhatsApp", className, onAbrir, ...props }) {
+  const pestana = usePestanaNueva();
   return (
     <Button
       href={enlaceWhatsapp(texto)}
@@ -27,6 +30,7 @@ export function BotonWhatsapp({ texto = MENSAJE_WHATSAPP, children = "Escríbeno
       {children}
       {/* El ícono es decorativo: el nombre del botón dice a dónde lleva. */}
       {typeof children === "string" && /whatsapp/i.test(children) ? null : <span className="sr-only"> por WhatsApp</span>}
+      {pestana ? <span className="sr-only"> (se abre en una pestaña nueva)</span> : null}
     </Button>
   );
 }

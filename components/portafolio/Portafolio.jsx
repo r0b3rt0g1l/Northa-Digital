@@ -5,10 +5,10 @@ import { Municipios } from "./Municipios";
 import { proyectoDestacado } from "@/lib/content/proyectos";
 
 /**
- * ¿Qué trabajo real han hecho? Todos los municipios con portal publicado, con
- * la página de inicio real de cada uno: en un widget que pasa solo por todos
- * y en una tarjeta por portal con su enlace. Añadir un municipio = una entrada
- * en lib/content/proyectos.js y su captura (scripts/capturar-portales.mjs).
+ * ¿Qué trabajo real han hecho? Todos los municipios con portal publicado, en
+ * un solo contenedor compacto con la página de inicio real de cada uno y su
+ * enlace. Añadir un municipio = una entrada en lib/content/proyectos.js y su
+ * captura (scripts/capturar-portales.mjs).
  */
 export function Portafolio() {
   const proyecto = proyectoDestacado;
