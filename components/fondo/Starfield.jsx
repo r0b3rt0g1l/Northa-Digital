@@ -292,10 +292,10 @@ export function Starfield() {
       const area = (width * height) / 1e6;
       const disco = (Math.PI * radio * radio) / (width * height);
       const n = (base) => Math.round(base * factor * disco);
-      const nPolvo = n(m ? 420 : Math.min(1400, Math.max(560, area * 640)));
-      const nFijas = n(m ? 380 : Math.min(1000, Math.max(460, area * 460)));
-      const nTitilan = n(m ? 80 : Math.min(200, Math.max(110, area * 100)));
-      const nMedias = n(m ? 20 : Math.min(54, Math.max(28, area * 28)));
+      const nPolvo = n(m ? 520 : Math.min(1400, Math.max(560, area * 640)));
+      const nFijas = n(m ? 470 : Math.min(1000, Math.max(460, area * 460)));
+      const nTitilan = n(m ? 100 : Math.min(200, Math.max(110, area * 100)));
+      const nMedias = n(m ? 26 : Math.min(54, Math.max(28, area * 28)));
       const nBrillantes = Math.round((m ? 4 : 9) * disco);
 
       // Franja de Vía Láctea, en coordenadas relativas al polo.
