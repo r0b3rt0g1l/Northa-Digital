@@ -2,12 +2,15 @@ import { Reveal } from "@/components/ui/Reveal";
 import { BotonWhatsapp } from "@/components/ui/BotonWhatsapp";
 import { seguridad } from "@/lib/content/servicios";
 import { DemoAcceso } from "./DemoAcceso";
+import { AccesoReal } from "./AccesoReal";
 
 /**
  * Seguridad: protección digital, acceso seguro y administración protegida.
  * A la izquierda, cuatro puntos claros (VPN, login, protección y control de
  * acceso); a la derecha, una demostración visual del servicio que no es un
  * formulario ni imita pantallas de terceros. Cierra con WhatsApp directo.
+ * Debajo, a todo el ancho, las capturas reales del acceso al panel de un
+ * portal (AccesoReal), con los datos sensibles ocultos.
  */
 export function Seguridad() {
   return (
@@ -39,6 +42,9 @@ export function Seguridad() {
           </div>
         </div>
         <DemoAcceso />
+        <div className="min-w-0 lg:col-span-2">
+          <AccesoReal />
+        </div>
       </Reveal>
     </section>
   );

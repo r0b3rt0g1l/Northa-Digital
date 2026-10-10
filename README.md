@@ -53,7 +53,11 @@ menú «Servicios» de la barra superior y en el asistente.
   administrativo seguro, protección para portales municipales, control de acceso
   y monitoreo) y una demostración visual: túnel VPN, login seguro y panel
   administrativo protegido. Es una ilustración: no tiene campos ni botones reales
-  y no imita pantallas de terceros.
+  y no imita pantallas de terceros. Debajo, «Así se entra al panel de tu portal»
+  muestra tres capturas reales del acceso al CMS (correo en Cloudflare Access,
+  código de un solo uso y login del panel con verificación anti-bots), rotuladas
+  como capturas: son imágenes, no formularios. En tableta y celular se deslizan
+  de lado.
 - **Escena final:** la estrella del norte se enciende y da una vuelta completa al
   entrar en pantalla.
 - **Puntero:** en escritorio, un puntero adaptable al estilo de iPadOS. Es un círculo
@@ -70,6 +74,16 @@ menú «Servicios» de la barra superior y en el asistente.
   fijo, centrado y en varias filas. El contenido funciona sin JavaScript.
 
 Los valores viven en `app/globals.css` (tokens en `@theme`) y en `lib/fonts.js`.
+
+## Capturas del acceso (Seguridad)
+
+Viven en `public/seguridad/` y sus textos en `lib/content/servicios.js`
+(`seguridad.acceso`). Antes de reemplazarlas:
+
+- Tapa con un bloque opaco (no con desenfoque) el dominio privado de acceso y
+  cualquier código de verificación, y usa solo el correo de Northa.
+- Exporta a WebP sin metadatos (por ejemplo, con `sharp`, que no los copia).
+- Nunca subas las capturas originales al repositorio.
 
 ## Contacto
 
