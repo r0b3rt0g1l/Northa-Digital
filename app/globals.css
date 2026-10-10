@@ -1251,11 +1251,14 @@
       outline-offset: -2px;
       border-radius: 20px;
     }
+    /* En la franja se ve una tarjeta a la vez: cada una con su altura, sin
+       espacio vacío bajo las capturas más bajas. */
     .ingreso-pasos {
       width: max-content;
       grid-template-columns: none;
       grid-auto-flow: column;
       grid-auto-columns: min(92cqw, 340px);
+      align-items: start;
     }
     .glass.ingreso-paso {
       scroll-snap-align: start;
