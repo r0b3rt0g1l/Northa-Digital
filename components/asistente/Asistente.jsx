@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Mail, Phone } from "lucide-react";
+import { Mail } from "lucide-react";
 import { StarIcon } from "@/components/ui/StarIcon";
 import { WhatsAppIcon } from "@/components/ui/WhatsAppIcon";
 import { EVENTO_ASISTENTE } from "@/lib/acciones";
-import { site, whatsappConTexto } from "@/lib/site";
+import { site } from "@/lib/site";
+import { EnlaceWhatsapp } from "@/components/ui/EnlaceWhatsapp";
 
 // El panel se descarga solo cuando alguien lo abre (o pasa por el botón).
 const cargarPanel = () => import("./AsistentePanel");
@@ -69,23 +70,10 @@ function PanelRespaldo({ onCerrar }) {
         No pudimos cargar el asistente. Escríbenos y te respondemos directamente.
       </p>
       <div className="flex flex-wrap gap-2">
-        <a
-          href={whatsappConTexto()}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-text px-4 text-sm font-semibold text-bg"
-        >
+        <EnlaceWhatsapp className="inline-flex min-h-11 items-center gap-2 rounded-full bg-text px-4 text-sm font-semibold text-bg">
           <WhatsAppIcon className="h-4 w-4 text-[#128C7E]" />
           Escribir por WhatsApp
-          <span className="sr-only"> (se abre en una pestaña nueva)</span>
-        </a>
-        <a
-          href={site.contact.phoneHref}
-          className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line-strong px-4 text-sm font-medium text-text"
-        >
-          <Phone className="h-4 w-4" aria-hidden="true" />
-          {site.contact.phoneDisplay}
-        </a>
+        </EnlaceWhatsapp>
         <a
           href={site.contact.emailHref}
           className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line-strong px-4 text-sm font-medium text-text"

@@ -37,6 +37,14 @@
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Intensidad de la luz que sigue al cursor en el vidrio: 0 en reposo, 1 con
+   el puntero encima. Registrada para poder animarse con una transición. */
+@property --luz {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
 @layer base {
   *,
   *::before,
@@ -142,10 +150,12 @@
 
 @layer components {
   /* ---------- Liquid glass ----------
-     Solo en navbar, menú, panel de contacto, tarjeta de sistemas, asistente
-     y controles. Material: fondo translúcido saturado, borde con luz que
-     recorre el contorno (::before) y reflejo especular que sigue al
-     puntero (::after con --mx/--my, ver GlassPointer). */
+     Un solo material en todo el sitio: barra, menús, tarjetas, botones
+     secundarios, banners, secciones destacadas, asistente y controles.
+     Fondo translúcido con desenfoque real y saturación, borde luminoso
+     (::before) y reflejo especular (::after). Con el puntero encima, el borde
+     se enciende justo donde está el cursor y el reflejo lo sigue como un
+     líquido (--mx/--my de GlassPointer, --luz con transición). */
   .glass,
   .glass-strong {
     position: relative;
@@ -189,13 +199,20 @@
     inset: -1px;
     border-radius: inherit;
     padding: 1px;
-    background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.22),
-      rgba(255, 255, 255, 0.06) 32%,
-      rgba(255, 255, 255, 0.02) 58%,
-      rgba(127, 211, 255, 0.16)
-    );
+    background:
+      radial-gradient(
+        240px circle at var(--mx, 50%) var(--my, 0%),
+        rgba(255, 255, 255, calc(var(--luz) * 0.9)),
+        rgba(127, 211, 255, calc(var(--luz) * 0.35)) 40%,
+        rgba(255, 255, 255, 0) 70%
+      ),
+      linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.24),
+        rgba(255, 255, 255, 0.07) 32%,
+        rgba(255, 255, 255, 0.025) 58%,
+        rgba(127, 211, 255, 0.18)
+      );
     -webkit-mask:
       linear-gradient(#000 0 0) content-box,
       linear-gradient(#000 0 0);
@@ -213,8 +230,8 @@
     border-radius: inherit;
     background:
       radial-gradient(
-        180px 120px at var(--mx, 18%) var(--my, -4%),
-        rgba(255, 255, 255, 0.12),
+        calc(180px + var(--luz) * 60px) calc(120px + var(--luz) * 50px) at var(--mx, 18%) var(--my, -4%),
+        rgba(255, 255, 255, calc(0.12 + var(--luz) * 0.08)),
         rgba(255, 255, 255, 0) 70%
       ),
       radial-gradient(
@@ -226,6 +243,32 @@
     pointer-events: none;
     z-index: -1;
     transition: opacity 0.4s var(--ease-out);
+  }
+  .glass,
+  .glass-strong {
+    transition: --luz 0.45s var(--ease-out);
+  }
+  @media (hover: hover) {
+    .glass:hover,
+    .glass-strong:hover {
+      --luz: 1;
+    }
+  }
+  /* Vidrio dentro de otro vidrio: sin segundo desenfoque (el de fuera ya
+     difumina el fondo) y un poco más de cuerpo. Menos trabajo para la GPU. */
+  .glass.glass-interior,
+  .glass-strong.glass-interior {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background:
+      linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.075),
+        rgba(255, 255, 255, 0.02) 40%,
+        rgba(255, 255, 255, 0) 62%,
+        rgba(255, 255, 255, 0.03)
+      ),
+      rgba(16, 20, 27, 0.62);
   }
 
   /* Pantallas táctiles: menos blur, sin saturación (menos costo de GPU). */
@@ -262,7 +305,32 @@
   .glass-hover {
     transition:
       transform 0.35s var(--ease-out),
-      box-shadow 0.35s var(--ease-out);
+      box-shadow 0.35s var(--ease-out),
+      --luz 0.45s var(--ease-out);
+  }
+  /* Botón principal: un destello recorre la píldora al pasar el cursor. */
+  .btn-luz {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+  .btn-luz::after {
+    content: "";
+    position: absolute;
+    top: -30%;
+    bottom: -30%;
+    left: 0;
+    z-index: -1;
+    width: 40%;
+    background: linear-gradient(100deg, transparent, rgba(79, 140, 255, 0.22) 50%, transparent);
+    transform: translateX(-140%) skewX(-14deg);
+    pointer-events: none;
+  }
+  @media (hover: hover) {
+    .btn-luz:hover::after {
+      transform: translateX(320%) skewX(-14deg);
+      transition: transform 0.9s var(--ease-out);
+    }
   }
   .glass-hover:hover {
     transform: translateY(-2px);
@@ -727,9 +795,11 @@
     transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
   }
   .card-hover[data-tilt]:hover,
-  .glass-hover[data-tilt]:hover {
+  .glass-hover[data-tilt]:hover,
+  .portal[data-tilt]:hover,
+  .portal[data-tilt]:focus-visible {
     transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg))
-      translateY(-3px);
+      translateY(-4px);
   }
 
   /* ---------- Indicador para seguir explorando (hero) ----------
@@ -883,18 +953,12 @@
     height: 100%;
     padding: 18px 18px 18px 16px;
     border-radius: 20px;
-    border: 1px solid var(--color-line);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012)),
-      rgba(14, 17, 22, 0.62);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
     transition:
-      border-color 0.3s ease,
-      translate 0.4s var(--ease-out);
+      translate 0.4s var(--ease-out),
+      --luz 0.45s var(--ease-out);
   }
   .beneficio:hover {
-    border-color: rgba(127, 211, 255, 0.28);
-    translate: 0 -2px;
+    translate: 0 -3px;
   }
   .beneficio-icono {
     display: grid;
@@ -908,197 +972,800 @@
     color: var(--color-accent-2);
   }
 
-  /* ---------- Banda de servicios: recorrido continuo con rebote ----------
-     La pista lleva cuatro copias de la fila y avanza una copia (25 %) en
-     bucle; cada botón rebota con un retraso propio, como una ola. Se detiene
-     con el botón de pausa, al pasar el puntero, al enfocar un botón o al
-     tocarla. Solo transform, translate y scale: fluido en todos los
-     navegadores. */
-  .banda {
-    --duracion: 44s;
+  /* ---------- Banner de servicios en cartas (efecto Solitario) ----------
+     Las cartas salen del mazo en cascada y rebotan hasta su lugar (Web
+     Animations API en BarajaServicios), con una estela de copias que se
+     desvanece. Después quedan quietas. Hover: elevación, giro 3D hacia el
+     puntero y un destello que recorre la carta. */
+  .baraja {
+    border-radius: 32px;
+    padding: 24px;
+  }
+  .baraja-cabeza {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .baraja-mazo {
     position: relative;
-    display: flex;
-    align-items: center;
-  }
-  .banda-ventana {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    padding-block: 18px 14px;
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
-    mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
-  }
-  .banda-pista {
-    display: flex;
-    width: max-content;
-    animation: banda-recorrido var(--duracion) linear infinite;
-  }
-  .banda-grupo {
-    display: flex;
+    width: 40px;
+    height: 52px;
+    margin-left: auto;
     flex-shrink: 0;
-    gap: 12px;
-    margin: 0;
-    padding: 0 12px 0 0;
-    list-style: none;
   }
-  .banda-pieza {
+  .baraja-mazo i {
+    position: absolute;
+    inset: 0;
+    border-radius: 9px;
+    border: 1px solid rgba(127, 211, 255, 0.35);
+    background:
+      linear-gradient(135deg, rgba(127, 211, 255, 0.22), rgba(79, 140, 255, 0.06)),
+      rgba(16, 20, 28, 0.9);
+    box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.9);
+  }
+  .baraja-mazo i:nth-child(1) {
+    rotate: -9deg;
+  }
+  .baraja-mazo i:nth-child(2) {
+    rotate: 5deg;
+    translate: 3px -2px;
+  }
+  .baraja-mazo i:nth-child(3) {
+    translate: 1px -4px;
+  }
+  .baraja-repartir {
     display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    min-height: 48px;
-    padding: 0 20px 0 15px;
-    border-radius: 999px;
-    border: 1px solid var(--color-line-strong);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
-      rgba(16, 19, 25, 0.9);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.09),
-      0 12px 26px -16px rgba(0, 0, 0, 0.9);
-    color: var(--color-text);
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    white-space: nowrap;
-    animation: banda-rebote 2.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
-    animation-delay: calc(var(--i) * 0.32s);
-    transition:
-      border-color 0.3s ease,
-      background-color 0.3s ease;
-  }
-  .banda-pieza:hover {
-    border-color: rgba(127, 211, 255, 0.5);
-  }
-  .banda-pieza svg {
-    color: var(--color-accent-2);
-  }
-  .banda-pieza--seguridad {
-    border-color: rgba(79, 140, 255, 0.45);
-    background:
-      linear-gradient(180deg, rgba(79, 140, 255, 0.2), rgba(79, 140, 255, 0.06)),
-      rgba(16, 19, 25, 0.9);
-  }
-  /* Pausa: botón, toque, fuera de pantalla, foco o puntero en la ventana. El
-     botón de pausa queda fuera de la ventana para que «Reanudar» reanude. */
-  .banda.is-pausada .banda-pista,
-  .banda.is-pausada .banda-pieza,
-  .banda.is-fuera .banda-pista,
-  .banda.is-fuera .banda-pieza,
-  .banda-ventana:focus-within .banda-pista,
-  .banda-ventana:focus-within .banda-pieza {
-    animation-play-state: paused;
-  }
-  /* Con teclado, la pista vuelve al inicio: el botón enfocado se ve. */
-  .banda:has(.banda-pieza:focus-visible) .banda-pista {
-    animation: none;
-  }
-  @media (hover: hover) {
-    .banda-ventana:hover .banda-pista,
-    .banda-ventana:hover .banda-pieza {
-      animation-play-state: paused;
-    }
-  }
-  .banda-pausa {
-    display: grid;
-    place-items: center;
     flex-shrink: 0;
-    width: 44px;
-    height: 44px;
-    margin: 0 20px 0 6px;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    min-width: 44px;
+    justify-content: center;
+    padding: 0 16px;
     border-radius: 999px;
     border: 1px solid var(--color-line-strong);
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.05);
     color: var(--color-text-2);
+    font-size: 13.5px;
+    font-weight: 600;
     transition:
       color 0.2s ease,
-      background-color 0.2s ease;
+      background-color 0.2s ease,
+      border-color 0.2s ease;
   }
-  .banda-pausa:hover {
+  .baraja-repartir:hover {
     color: var(--color-text);
-    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(127, 211, 255, 0.45);
+    background: rgba(127, 211, 255, 0.1);
   }
-  @keyframes banda-recorrido {
-    to {
-      transform: translateX(-25%);
+  .baraja-cartas {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    margin: 22px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .carta-lugar {
+    position: relative;
+    flex: 0 0 calc(25% - 9px);
+  }
+  .carta {
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-height: 196px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 18px;
+    border-radius: 22px;
+    text-align: left;
+    transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transition:
+      transform 0.5s var(--ease-out),
+      box-shadow 0.5s var(--ease-out),
+      opacity 0.3s ease,
+      --luz 0.45s var(--ease-out);
+    will-change: transform;
+  }
+  .carta:hover,
+  .carta:focus-visible {
+    transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-8px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 40px 70px -30px rgba(0, 0, 0, 0.95),
+      0 0 0 1px rgba(127, 211, 255, 0.22);
+  }
+  .carta-icono {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 13px;
+    border: 1px solid rgba(127, 211, 255, 0.32);
+    background: radial-gradient(circle at 30% 20%, rgba(127, 211, 255, 0.26), rgba(79, 140, 255, 0.07));
+    color: var(--color-accent-2);
+  }
+  .carta-titulo {
+    margin-top: 4px;
+    font-family: var(--font-display), system-ui, sans-serif;
+    font-size: 16.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+    color: var(--color-text);
+  }
+  .carta-texto {
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--color-muted);
+  }
+  .carta-accion {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: auto;
+    padding-top: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-accent-2);
+  }
+  .glass.carta--seguridad {
+    background:
+      linear-gradient(160deg, rgba(79, 140, 255, 0.26), rgba(79, 140, 255, 0.05) 60%),
+      rgba(14, 17, 22, 0.6);
+  }
+  /* Destello que recorre la carta al pasar el cursor. */
+  .carta-brillo {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .carta-brillo::before {
+    content: "";
+    position: absolute;
+    top: -20%;
+    bottom: -20%;
+    left: 0;
+    width: 45%;
+    background: linear-gradient(
+      100deg,
+      transparent,
+      rgba(255, 255, 255, 0.1) 40%,
+      rgba(255, 255, 255, 0.22) 50%,
+      rgba(255, 255, 255, 0.1) 60%,
+      transparent
+    );
+    transform: translateX(-130%) skewX(-12deg);
+    transition: transform 0s;
+  }
+  .carta:hover .carta-brillo::before,
+  .carta:focus-visible .carta-brillo::before {
+    transform: translateX(330%) skewX(-12deg);
+    transition: transform 0.95s var(--ease-out);
+  }
+  /* Copias que siguen a cada carta en el vuelo (solo visibles al repartir). */
+  .carta-estela {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 22px;
+    border: 1px solid rgba(127, 211, 255, 0.4);
+    background:
+      linear-gradient(135deg, rgba(127, 211, 255, 0.18), rgba(79, 140, 255, 0.04)),
+      rgba(14, 18, 26, 0.7);
+    color: var(--color-accent-2);
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* Antes de repartir, las cartas esperan en el mazo. */
+  .baraja.is-pendiente .carta {
+    opacity: 0;
+  }
+  @media (max-width: 1023px) {
+    .carta-lugar {
+      flex-basis: calc(33.333% - 8px);
     }
   }
-  @keyframes banda-rebote {
-    0%,
-    44%,
-    100% {
-      translate: 0 0;
-      scale: 1 1;
+  @media (max-width: 720px) {
+    .baraja {
+      padding: 18px 14px 14px;
+      border-radius: 26px;
     }
-    8% {
-      translate: 0 1px;
-      scale: 1.05 0.93;
-    }
-    18% {
-      translate: 0 -12px;
-      scale: 0.97 1.04;
-    }
-    28% {
-      translate: 0 0;
-      scale: 1.03 0.97;
-    }
-    36% {
-      translate: 0 -3px;
-      scale: 1 1;
-    }
-  }
-  /* En móvil: más lenta y con botones más pequeños. */
-  @media (max-width: 640px) {
-    .banda {
-      --duracion: 60s;
-    }
-    .banda-grupo {
+    .baraja-cartas {
       gap: 10px;
-      padding-right: 10px;
+      margin-top: 18px;
     }
-    .banda-pieza {
-      gap: 7px;
-      min-height: 44px;
-      padding: 0 15px 0 12px;
-      font-size: 13.5px;
+    .carta-lugar {
+      flex-basis: calc(50% - 5px);
     }
-    .banda-pausa {
-      margin-right: 14px;
+    .carta {
+      min-height: 170px;
+      padding: 14px;
+      gap: 6px;
+      border-radius: 18px;
+    }
+    .carta-estela {
+      border-radius: 18px;
+    }
+    .carta-titulo {
+      font-size: 15px;
+    }
+    .carta-texto {
+      font-size: 12.5px;
+    }
+  }
+  @media (max-width: 339px) {
+    .carta-lugar {
+      flex-basis: 100%;
     }
   }
 
-  /* ---------- Seguridad: una pieza de confianza ---------- */
-  .confianza-escudo {
+  /* ---------- Seguridad: puntos y demostración visual ----------
+     La demostración es una ilustración (role="img"): panel administrativo,
+     login seguro y túnel VPN. No tiene campos ni botones reales. Solo
+     transform y opacity en las animaciones. */
+  .seguridad-punto {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid var(--color-line);
+    background: rgba(255, 255, 255, 0.025);
+  }
+  .acceso {
+    --verde: #34d399;
+    position: relative;
+    min-height: 430px;
+    padding: 34px 0 0 12%;
+    font-family: var(--font-sans), system-ui, sans-serif;
+    user-select: none;
+  }
+  .acceso-panel {
+    position: relative;
+    overflow: hidden;
+    border-radius: 20px;
+    height: 330px;
+  }
+  .acceso-barra {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 40px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--color-line);
+    background: rgba(255, 255, 255, 0.025);
+    font-size: 12px;
+  }
+  .acceso-luces {
+    display: inline-flex;
+    gap: 6px;
+  }
+  .acceso-luces i {
+    width: 9px;
+    height: 9px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.16);
+  }
+  .acceso-titulo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-inline: auto;
+    color: var(--color-text-2);
+    font-weight: 600;
+  }
+  .acceso-titulo svg {
+    color: var(--color-accent-2);
+  }
+  .acceso-estado {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 99px;
+    border: 1px solid rgba(52, 211, 153, 0.35);
+    background: rgba(52, 211, 153, 0.1);
+    color: #a7f3d0;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .acceso-estado i {
+    width: 6px;
+    height: 6px;
+    border-radius: 99px;
+    background: var(--verde);
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+  }
+  .acceso-cuerpo {
+    display: grid;
+    grid-template-columns: 28% 1fr;
+    gap: 14px;
+    height: calc(100% - 40px);
+    padding: 14px;
+  }
+  .acceso-lateral {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.025);
+  }
+  .acceso-lateral span {
+    width: var(--w);
+    height: 8px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+  .acceso-lateral span.is-activo {
+    background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));
+  }
+  .acceso-contenido {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .acceso-fichas {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .acceso-ficha {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 12px;
+    border: 1px solid var(--color-line);
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .acceso-ficha i {
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
+    background: radial-gradient(circle at 30% 30%, rgba(127, 211, 255, 0.5), rgba(79, 140, 255, 0.15));
+  }
+  .acceso-ficha b,
+  .acceso-registro b,
+  .acceso-campo b {
+    display: block;
+    width: var(--w);
+    height: 7px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.14);
+  }
+  .acceso-monitor {
+    position: relative;
+    flex: 1;
+    min-height: 70px;
+    overflow: hidden;
+    border-radius: 12px;
+    border: 1px solid var(--color-line);
+    background:
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 25%),
+      rgba(255, 255, 255, 0.02);
+  }
+  .acceso-monitor svg {
+    position: absolute;
+    inset: 12% 0 10%;
+    width: 100%;
+    height: 78%;
+  }
+  .acceso-linea {
+    fill: none;
+    stroke: var(--color-accent-2);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+    stroke-dasharray: 340;
+    stroke-dashoffset: 0;
+  }
+  .acceso-pulso {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 30%;
+    background: linear-gradient(90deg, transparent, rgba(127, 211, 255, 0.12), transparent);
+    opacity: 0;
+  }
+  .acceso-registro {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .acceso-registro span {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .acceso-registro i {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-radius: 99px;
+    background: var(--verde);
+  }
+  .acceso-escaneo {
+    position: absolute;
+    inset: 40px 0 auto;
+    height: 46px;
+    background: linear-gradient(180deg, transparent, rgba(127, 211, 255, 0.1), transparent);
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .acceso-login {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    display: flex;
+    width: min(54%, 270px);
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    border-radius: 20px;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 30px 60px -24px rgba(0, 0, 0, 0.95);
+    font-size: 12px;
+  }
+  .acceso-login-cabeza {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 2px;
+  }
+  .acceso-login-cabeza strong {
+    font-size: 13.5px;
+    color: var(--color-text);
+  }
+  .acceso-login-cabeza small {
+    font-size: 11.5px;
+    color: var(--color-muted);
+  }
+  .acceso-avatar {
     display: grid;
     place-items: center;
-    width: 72px;
-    height: 72px;
+    width: 34px;
+    height: 34px;
     flex-shrink: 0;
-    border-radius: 22px;
-    border: 1px solid rgba(127, 211, 255, 0.32);
-    background: radial-gradient(circle at 30% 20%, rgba(127, 211, 255, 0.25), rgba(79, 140, 255, 0.06) 70%);
-    box-shadow: 0 0 44px -10px rgba(79, 140, 255, 0.5);
+    border-radius: 99px;
+    border: 1px solid rgba(127, 211, 255, 0.35);
+    background: radial-gradient(circle at 30% 25%, rgba(127, 211, 255, 0.3), rgba(79, 140, 255, 0.08));
     color: var(--color-accent-2);
+  }
+  .acceso-campo {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    height: 34px;
+    padding: 0 11px;
+    border-radius: 10px;
+    border: 1px solid var(--color-line-strong);
+    background: rgba(6, 8, 11, 0.55);
+    color: var(--color-muted);
+  }
+  .acceso-campo--clave {
+    border-color: rgba(127, 211, 255, 0.4);
+    box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.12);
+  }
+  .acceso-puntos {
+    display: inline-flex;
+    gap: 5px;
+  }
+  .acceso-puntos i {
+    width: 6px;
+    height: 6px;
+    border-radius: 99px;
+    background: var(--color-text);
+  }
+  .acceso-entrar {
+    display: grid;
+    place-items: center;
+    height: 34px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #6ea2ff, var(--color-accent));
+    color: #fff;
+    box-shadow: 0 10px 24px -12px rgba(79, 140, 255, 0.9);
+  }
+
+  .acceso-vpn {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px 8px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  .acceso-nodo {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    border-radius: 99px;
+    border: 1px solid var(--color-line-strong);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-2);
+  }
+  .acceso-nodo--escudo {
+    border-color: rgba(52, 211, 153, 0.45);
+    background: rgba(52, 211, 153, 0.12);
+    color: #a7f3d0;
+  }
+  .acceso-tunel {
+    position: relative;
+    width: 64px;
+    height: 10px;
+    overflow: hidden;
+    border-radius: 99px;
+    border: 1px solid rgba(127, 211, 255, 0.35);
+    background: linear-gradient(90deg, rgba(79, 140, 255, 0.12), rgba(52, 211, 153, 0.12));
+  }
+  .acceso-tunel i {
+    position: absolute;
+    top: 2px;
+    left: -8px;
+    width: 6px;
+    height: 4px;
+    border-radius: 99px;
+    background: var(--color-accent-2);
+    box-shadow: 0 0 8px rgba(127, 211, 255, 0.9);
+  }
+  .acceso-tunel i:first-child {
+    left: 40%;
+  }
+  /* Una reproducción de menos de 5 s al entrar en pantalla o con el cursor
+     encima (clase is-viva, ver DemoAcceso). En reposo: estado final. */
+  .acceso.is-viva .acceso-estado i {
+    animation: acceso-latido 2.4s ease-out 2;
+  }
+  .acceso.is-viva .acceso-linea {
+    animation: acceso-trazo 4.6s var(--ease-out) both;
+  }
+  .acceso.is-viva .acceso-pulso {
+    animation: acceso-barrido 3.6s linear both;
+  }
+  .acceso.is-viva .acceso-registro span {
+    animation: acceso-aparece 2.2s ease-in-out 2 backwards;
+    animation-delay: calc(var(--i) * 0.2s);
+  }
+  .acceso.is-viva .acceso-escaneo {
+    animation: acceso-escaneo 4.6s ease-in-out both;
+  }
+  .acceso.is-viva .acceso-puntos i {
+    animation: acceso-tecla 1.4s steps(1, end) both;
+    animation-delay: calc(var(--i) * 0.16s);
+  }
+  .acceso.is-viva .acceso-tunel i {
+    left: -8px;
+    animation: acceso-paquete 1.6s linear 2 backwards;
+  }
+  .acceso.is-viva .acceso-tunel i:nth-child(2) {
+    animation-delay: 0.5s;
+  }
+  .acceso.is-viva .acceso-tunel i:nth-child(3) {
+    animation-delay: 1s;
+  }
+  .acceso-vpn-texto {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+  }
+  .acceso-vpn-texto strong {
+    font-size: 12.5px;
+    color: var(--color-text);
+  }
+  .acceso-vpn-texto small {
+    font-size: 11px;
+    color: var(--color-muted);
+  }
+  .acceso-etiqueta {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    padding: 3px 9px;
+    border-radius: 99px;
+    border: 1px solid var(--color-line);
+    background: rgba(9, 12, 17, 0.7);
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: var(--color-faint);
+  }
+  @media (max-width: 520px) {
+    .acceso {
+      min-height: 400px;
+      padding: 56px 0 0 0;
+    }
+    .acceso-panel {
+      height: 270px;
+    }
+    .acceso-cuerpo {
+      grid-template-columns: 1fr;
+    }
+    .acceso-lateral {
+      display: none;
+    }
+    .acceso-login {
+      width: 74%;
+      left: 0;
+      bottom: 0;
+    }
+    .acceso-titulo {
+      display: none;
+    }
+    .acceso-etiqueta {
+      top: 66px;
+      right: 12px;
+      bottom: auto;
+    }
+  }
+  @keyframes acceso-latido {
+    0% {
+      box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+    }
+    70%,
+    100% {
+      box-shadow: 0 0 0 7px rgba(52, 211, 153, 0);
+    }
+  }
+  @keyframes acceso-paquete {
+    from {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    95% {
+      opacity: 1;
+    }
+    to {
+      transform: translateX(80px);
+      opacity: 0;
+    }
+  }
+  @keyframes acceso-escaneo {
+    0% {
+      transform: translateY(-50px);
+      opacity: 0;
+    }
+    100% {
+      transform: translateY(-50px);
+      opacity: 0;
+    }
+    15%,
+    85% {
+      opacity: 1;
+    }
+    50% {
+      transform: translateY(260px);
+    }
+  }
+  @keyframes acceso-barrido {
+    from {
+      transform: translateX(-100%);
+      opacity: 1;
+    }
+    to {
+      transform: translateX(340%);
+      opacity: 1;
+    }
+  }
+  @keyframes acceso-trazo {
+    0% {
+      stroke-dashoffset: 340;
+    }
+    55%,
+    100% {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes acceso-tecla {
+    0%,
+    60% {
+      opacity: 0;
+    }
+    61%,
+    100% {
+      opacity: 1;
+    }
+  }
+  @keyframes acceso-aparece {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    20%,
+    70% {
+      opacity: 1;
+    }
   }
 
   /* ---------- Portafolio: widget de municipios ----------
-     Una pila de tarjetas al estilo de los widgets de Apple: la siguiente sube
-     desde abajo mientras la anterior se va hacia arriba. */
+     Ventana de navegador de vidrio con la página de inicio real de cada
+     portal. Las capturas se apilan al estilo de los widgets de Apple: la
+     siguiente sube desde abajo mientras la anterior se va hacia arriba. */
   .widget {
+    margin: 0;
+    overflow: hidden;
+    border-radius: 28px;
+    padding: 0;
+  }
+  .widget-navegador {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 46px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .widget-luces {
+    display: inline-flex;
+    flex-shrink: 0;
+    gap: 7px;
+  }
+  .widget-luces i {
+    width: 11px;
+    height: 11px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.16);
+  }
+  .widget-luces i:first-child {
+    background: #ff5f57;
+  }
+  .widget-luces i:nth-child(2) {
+    background: #febc2e;
+  }
+  .widget-luces i:nth-child(3) {
+    background: #28c840;
+  }
+  .widget-url {
+    display: inline-flex;
+    min-width: 0;
+    flex: 0 1 380px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 28px;
+    margin-inline: auto;
+    padding: 0 12px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text-2);
+    font-size: 12.5px;
+  }
+  .widget-url svg {
+    color: #86efac;
+  }
+  .widget-cuenta {
+    flex-shrink: 0;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--color-text-2);
+  }
+  .widget-pantalla {
     position: relative;
     isolation: isolate;
-    aspect-ratio: 4 / 3.6;
+    aspect-ratio: 4 / 3.5;
     overflow: hidden;
-    border-radius: 32px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
     background: #0b0e13;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 40px 90px -40px rgba(0, 0, 0, 0.95);
     touch-action: pan-y;
   }
   @media (min-width: 640px) {
-    .widget {
-      aspect-ratio: 16 / 10.5;
+    .widget-pantalla {
+      aspect-ratio: 16 / 10;
     }
   }
   .widget-pila {
@@ -1130,7 +1797,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: 72% center;
+    object-position: center top;
   }
   .widget-respaldo {
     position: absolute;
@@ -1181,16 +1848,15 @@
     z-index: 1;
     background: linear-gradient(
       180deg,
-      rgba(5, 7, 10, 0.55) 0%,
-      rgba(5, 7, 10, 0) 26%,
-      rgba(5, 7, 10, 0) 42%,
-      rgba(5, 7, 10, 0.88) 100%
+      rgba(5, 7, 10, 0) 0%,
+      rgba(5, 7, 10, 0) 55%,
+      rgba(5, 7, 10, 0.45) 100%
     );
   }
   .widget-sello {
     position: absolute;
-    top: 16px;
-    left: 16px;
+    top: 14px;
+    left: 14px;
     z-index: 2;
     display: inline-flex;
     align-items: center;
@@ -1198,52 +1864,54 @@
     padding: 5px 11px 5px 7px;
     border-radius: 999px;
     border: 1px solid rgba(127, 211, 255, 0.35);
-    background: rgba(9, 12, 17, 0.72);
+    background: rgba(9, 12, 17, 0.78);
     color: var(--color-text);
     font-size: 11.5px;
     font-weight: 600;
-    max-width: calc(100% - 100px);
+    max-width: calc(100% - 28px);
+    box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.8);
     -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
   }
-  .widget-cuenta {
-    position: absolute;
-    top: 18px;
-    right: 18px;
-    z-index: 2;
-    font-family: var(--font-mono), ui-monospace, monospace;
-    font-size: 11.5px;
-    color: var(--color-text);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 14px rgba(0, 0, 0, 0.55);
-  }
+  /* Pie de vidrio sobre la captura: se lee igual sobre portadas claras u oscuras. */
   .widget-pie {
     position: absolute;
-    inset: auto 70px 0 0;
+    left: 16px;
+    bottom: 16px;
     z-index: 2;
     display: flex;
+    max-width: calc(100% - 92px);
     flex-direction: column;
     align-items: flex-start;
-    gap: 6px;
-    padding: 0 0 22px 22px;
+    gap: 4px;
+    padding: 14px 18px 16px;
+    border-radius: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02) 50%),
+      rgba(10, 13, 18, 0.78);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 24px 50px -24px rgba(0, 0, 0, 0.9);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
   }
   .widget-etiqueta {
     font-family: var(--font-mono), ui-monospace, monospace;
     font-size: 11px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--color-text);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 14px rgba(0, 0, 0, 0.55);
+    color: var(--color-text-2);
   }
   .widget-nombre {
     font-family: var(--font-display), system-ui, sans-serif;
-    font-size: clamp(2rem, 3.6vw + 0.6rem, 3.4rem);
+    font-size: clamp(1.55rem, 2.4vw + 0.7rem, 2.7rem);
     font-weight: 600;
     line-height: 1.02;
     letter-spacing: -0.035em;
     color: #fff;
     overflow-wrap: break-word;
     hyphens: auto;
-    text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
   }
   .widget-enlace {
     display: inline-flex;
@@ -1251,19 +1919,20 @@
     gap: 6px;
     min-height: 44px;
     margin-top: 8px;
-    padding: 0 16px;
+    padding: 0 18px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.24);
+    border: 1px solid rgba(255, 255, 255, 0.28);
     background: rgba(255, 255, 255, 0.14);
     color: #fff;
     font-size: 14px;
     font-weight: 600;
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
     transition: background-color 0.2s ease;
   }
   .widget-enlace:hover {
-    background: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.26);
   }
   .widget-puntos {
     position: absolute;
@@ -1274,13 +1943,16 @@
     flex-direction: column;
     align-items: center;
     gap: 5px;
+    padding: 8px 5px;
+    border-radius: 99px;
+    background: rgba(9, 12, 17, 0.5);
     translate: 0 -50%;
   }
   .widget-puntos > span {
     width: 5px;
     height: 5px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.32);
+    background: rgba(255, 255, 255, 0.4);
     transition:
       height 0.4s var(--ease-out),
       background-color 0.4s ease;
@@ -1309,27 +1981,159 @@
     background: rgba(9, 12, 17, 0.8);
   }
   /* El icono cambia al pulsar: que el puntero quede siempre sobre el botón. */
-  .widget-pausa svg,
-  .banda-pausa svg {
+  .widget-pausa svg {
     pointer-events: none;
   }
-  @media (max-width: 420px) {
+  @media (max-width: 520px) {
     .widget-puntos {
       display: none;
     }
     .widget-pie {
-      right: 62px;
+      left: 10px;
+      bottom: 10px;
+      max-width: calc(100% - 72px);
+      padding: 11px 14px 12px;
+      border-radius: 18px;
+    }
+    .widget-etiqueta {
+      font-size: 10px;
+    }
+    .widget-enlace {
+      min-height: 44px;
+      margin-top: 4px;
+      padding: 0 14px;
+      font-size: 13.5px;
+    }
+    .widget-pausa {
+      right: 10px;
+      bottom: 10px;
+    }
+    .widget-cuenta {
+      display: none;
+    }
+    .widget-navegador {
+      gap: 10px;
+      padding: 0 12px;
     }
   }
 
-  /* Lista de municipios: el que se ve en el widget queda marcado. */
-  .municipio[data-activo] {
-    border-color: rgba(127, 211, 255, 0.45);
-    background: rgba(127, 211, 255, 0.07);
+  /* ---------- Portafolio: una tarjeta por portal ---------- */
+  .portal {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 22px;
+    transition:
+      transform 0.45s var(--ease-out),
+      box-shadow 0.45s var(--ease-out),
+      --luz 0.45s var(--ease-out);
+  }
+  .portal-captura {
+    position: relative;
+    display: block;
+    aspect-ratio: 16 / 10;
+    overflow: hidden;
+    margin: 6px 6px 0;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0b0e13;
+  }
+  .portal-captura img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+    transition: transform 0.7s var(--ease-out);
+  }
+  .portal-respaldo {
+    display: grid;
+    height: 100%;
+    place-items: center;
+    background: radial-gradient(90% 90% at 80% 10%, var(--color), transparent 70%), #0b0e13;
+    font-family: var(--font-display), system-ui, sans-serif;
+    font-size: 3rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.5);
+  }
+  @media (max-width: 520px) {
+    .portal {
+      border-radius: 18px;
+    }
+    .portal-captura {
+      margin: 5px 5px 0;
+      border-radius: 13px;
+    }
+    .portal-cuerpo {
+      padding: 10px 11px 12px;
+    }
+    .portal-nombre {
+      font-size: 14.5px;
+    }
+    .portal-dominio {
+      font-size: 11px;
+    }
+    .portal-boton {
+      padding: 0 11px;
+      font-size: 12.5px;
+    }
+  }
+  .portal-cuerpo {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 12px 14px 14px;
+    row-gap: 4px;
+  }
+  .portal-nombre {
+    min-width: 0;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    font-size: 15.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    color: var(--color-text);
+  }
+  .portal-dominio {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--color-faint);
+  }
+  .portal-boton {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 36px;
+    margin-top: auto;
+    padding: 0 13px;
+    border-radius: 999px;
+    border: 1px solid var(--color-line-strong);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 600;
+    transition:
+      background-color 0.3s ease,
+      border-color 0.3s ease;
+  }
+  .portal:hover .portal-captura img,
+  .portal:focus-visible .portal-captura img {
+    transform: scale(1.045);
+  }
+  .portal:hover .portal-boton,
+  .portal:focus-visible .portal-boton {
+    border-color: rgba(127, 211, 255, 0.5);
+    background: rgba(127, 211, 255, 0.14);
   }
   .municipio-color {
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
     flex-shrink: 0;
     border-radius: 999px;
     background: var(--color);
@@ -1486,12 +2290,13 @@
   [data-asistente] {
     display: none !important;
   }
-  .banda-pista,
-  .banda-pieza {
-    animation: none !important;
+  .baraja .carta {
+    opacity: 1 !important;
+    transform: none !important;
   }
-  .banda-grupo:not(:first-child),
-  .banda-pausa,
+  .carta-estela,
+  .baraja-repartir,
+  .baraja-mazo,
   .widget-pausa,
   .widget-puntos {
     display: none !important;
@@ -1540,8 +2345,7 @@
     transform: none;
     transition: none;
   }
-  .banda-pista,
-  .banda-pieza,
+  .acceso *,
   .sello-anillo,
   .sello-centro svg,
   .final-estrella,
@@ -1550,28 +2354,34 @@
   .cargando {
     animation: none !important;
   }
-  /* Banda quieta: una sola fila centrada, sin recorrido, rebote ni pausa. */
-  .banda-pista {
-    width: auto;
-    justify-content: center;
+  /* Cartas quietas en su lugar: sin vuelo, estela, giro 3D ni destello. */
+  .baraja .carta,
+  .baraja .carta:hover {
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
-  .banda-grupo {
-    flex-wrap: wrap;
-    justify-content: center;
-    padding-inline: 20px;
-  }
-  .banda-grupo:not(:first-child),
-  .banda-pausa {
+  .carta-brillo,
+  .carta-estela {
     display: none;
   }
-  .banda-ventana {
-    -webkit-mask-image: none;
-    mask-image: none;
+  .acceso-escaneo,
+  .acceso-pulso {
+    display: none;
+  }
+  .acceso-puntos i,
+  .acceso-registro span {
+    opacity: 1;
+  }
+  .acceso-linea {
+    stroke-dashoffset: 0;
   }
   /* Widget: cambia sin desplazarse. */
   .widget-pieza,
   .widget-puntos > span,
-  .beneficio {
+  .beneficio,
+  .portal,
+  .portal-captura img {
     transition: none;
   }
   .widget-pieza[data-estado] {

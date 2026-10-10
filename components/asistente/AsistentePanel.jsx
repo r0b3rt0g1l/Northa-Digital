@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowUpRight, Mail, Phone, RotateCcw, Send, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Mail, RotateCcw, Send, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { StarIcon } from "@/components/ui/StarIcon";
 import { WhatsAppIcon } from "@/components/ui/WhatsAppIcon";
@@ -24,10 +24,11 @@ import {
   siguientePaso,
 } from "@/lib/content/consulta";
 import { interpretar, responderTema, responderTexto, temaPorId } from "@/lib/asistente";
-import { site, textoWhatsapp, whatsappConTexto } from "@/lib/site";
+import { site, textoWhatsapp } from "@/lib/site";
+import { EnlaceWhatsapp } from "@/components/ui/EnlaceWhatsapp";
 import { irASeccion } from "@/lib/acciones";
 
-const CLAVE = "northa-asistente-v3";
+const CLAVE = "northa-asistente-v4";
 const MAX_MENSAJES = 60;
 const MODOS = ["consulta", "resumen", "dudas", "persona"];
 // Datos que se conservan si el visitante empieza otra consulta desde la página.
@@ -423,7 +424,12 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
         });
         return;
       }
-      // Pasos de solo opciones: se entienden sinónimos («por teléfono», «es para mi negocio»).
+      // Contacto: no hay llamadas; se aclara y se pide elegir WhatsApp o correo.
+      if (paso === "contacto" && /llam|marc|telef|celular/i.test(limpio) && !/whats|wasap|wpp|correo|mail/i.test(limpio)) {
+        avisar(limpio, consulta.sinLlamadas);
+        return;
+      }
+      // Pasos de solo opciones: se entienden sinónimos («por WhatsApp», «es para mi negocio»).
       const opcion = !pasoActual.texto ? opcionDesdeTexto(paso, limpio) : null;
       if (opcion) {
         responderPaso(opcion, limpio);
@@ -469,31 +475,23 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
   const opcionesPaso = pasoActual ? pasoActual.opciones(respuestas) : [];
   const completa = consultaCompleta(respuestas);
   const mensajeFinal = textoWhatsapp(mensajeConsulta(respuestas), respuestas.nombre);
-  const enlaceWhatsapp = whatsappConTexto(mensajeConsulta(respuestas), respuestas.nombre);
   const visibles = pasosVisibles(respuestas);
   const numeroPaso = pasoActual ? visibles.indexOf(pasoActual) + 1 : 0;
 
   const contacto = (
     <div className="flex flex-wrap gap-2">
-      <a
-        href={whatsappConTexto(
+      <EnlaceWhatsapp
+        texto={textoWhatsapp(
           lineasResumen(respuestas).length
             ? `${mensajeConsulta(respuestas)}\n\n${consulta.mensajePersona}`
             : consulta.mensajePersona,
           respuestas.nombre,
         )}
-        target="_blank"
-        rel="noopener noreferrer"
         className={principal}
       >
         <WhatsAppIcon className="h-4 w-4 text-[#128C7E]" />
         Escribir por WhatsApp
-        <span className="sr-only"> (se abre en una pestaña nueva)</span>
-      </a>
-      <a href={site.contact.phoneHref} className={accion}>
-        <Phone className="h-3.5 w-3.5" aria-hidden="true" />
-        Llamar al {site.contact.phoneDisplay}
-      </a>
+      </EnlaceWhatsapp>
       <a href={site.contact.emailHref} className={accion}>
         <Mail className="h-3.5 w-3.5" aria-hidden="true" />
         {site.contact.email}
@@ -504,33 +502,23 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
   const pintarAccion = (a) => {
     if (a.tipo === "whatsapp") {
       return (
-        <a
+        <EnlaceWhatsapp
           key={a.label}
-          href={whatsappConTexto(
+          texto={textoWhatsapp(
             completa ? `${mensajeConsulta(respuestas)}\n\n${a.texto ?? ""}`.trim() : a.texto ?? "",
             respuestas.nombre,
           )}
-          target="_blank"
-          rel="noopener noreferrer"
           className={accion}
         >
           <WhatsAppIcon className="h-3.5 w-3.5 text-[#25D366]" />
           {a.label}
-          <span className="sr-only"> (se abre en una pestaña nueva)</span>
-        </a>
+        </EnlaceWhatsapp>
       );
     }
     if (a.tipo === "correo") {
       return (
         <a key={a.label} href={site.contact.emailHref} className={accion}>
           {a.label}
-        </a>
-      );
-    }
-    if (a.tipo === "llamar") {
-      return (
-        <a key={a.label} href={site.contact.phoneHref} className={accion}>
-          {a.label} al {site.contact.phoneDisplay}
         </a>
       );
     }
@@ -701,12 +689,12 @@ export default function AsistentePanel({ onCerrar, peticion, onPeticionUsada }) 
                       </div>
                     ))}
                   </dl>
-                  <a href={enlaceWhatsapp} target="_blank" rel="noopener noreferrer" className={cn(principal, "w-full")}>
+                  <EnlaceWhatsapp texto={mensajeFinal} className={cn(principal, "w-full")}>
                     <WhatsAppIcon className="h-[18px] w-[18px] text-[#128C7E]" />
                     Continuar por WhatsApp
                     <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-                    <span className="sr-only"> (se abre en una pestaña nueva; tú decides si envías el mensaje)</span>
-                  </a>
+                    <span className="sr-only"> (abre WhatsApp; tú decides si envías el mensaje)</span>
+                  </EnlaceWhatsapp>
                   <p className="m-0 text-[12px] leading-snug text-faint">
                     Se abre WhatsApp con el mensaje listo. Nada se envía hasta que tú lo mandes.
                   </p>

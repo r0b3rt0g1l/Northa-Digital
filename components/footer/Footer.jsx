@@ -1,8 +1,8 @@
-import { Mail, Phone } from "lucide-react";
+import { Mail } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
-import { WhatsAppIcon } from "@/components/ui/WhatsAppIcon";
 import { BotonAsistente } from "@/components/ui/BotonAsistente";
-import { site, whatsappConTexto } from "@/lib/site";
+import { BotonWhatsapp } from "@/components/ui/BotonWhatsapp";
+import { site } from "@/lib/site";
 import { navSections } from "@/lib/content/nav";
 
 const enlace =
@@ -11,8 +11,9 @@ const icono =
   "grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line-strong bg-white/[0.04] transition-colors group-hover:border-white/25";
 
 /**
- * Pie con el contacto directo (#contacto): WhatsApp, teléfono y correo, más
- * el asistente. Todos los datos salen de lib/site.js.
+ * Pie con el contacto directo (#contacto): el botón de WhatsApp (abre el chat
+ * directo, sin mostrar el número), el correo y el asistente. Todos los datos
+ * salen de lib/site.js.
  */
 export function Footer() {
   const year = new Date().getFullYear();
@@ -34,28 +35,12 @@ export function Footer() {
           <h2 id="contacto-title" className="eyebrow m-0 text-[13px] font-normal tracking-[0.08em]">
             Contacto
           </h2>
+          <div>
+            <BotonWhatsapp size="sm" magnetic={false} className="pl-2.5">
+              Escríbenos por WhatsApp
+            </BotonWhatsapp>
+          </div>
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
-            <li>
-              <a href={whatsappConTexto()} target="_blank" rel="noopener noreferrer" className={enlace}>
-                <span className={icono}>
-                  <WhatsAppIcon className="h-4 w-4 text-[#25D366]" />
-                </span>
-                <span>
-                  WhatsApp <span className="text-text">{contact.phoneDisplay}</span>
-                </span>
-                <span className="sr-only"> (se abre en una pestaña nueva)</span>
-              </a>
-            </li>
-            <li>
-              <a href={contact.phoneHref} className={enlace}>
-                <span className={icono}>
-                  <Phone className="h-4 w-4" aria-hidden="true" />
-                </span>
-                <span>
-                  Teléfono <span className="text-text">{contact.phoneDisplay}</span>
-                </span>
-              </a>
-            </li>
             <li>
               <a href={contact.emailHref} className={enlace}>
                 <span className={icono}>

@@ -1,14 +1,14 @@
 import { Reveal } from "@/components/ui/Reveal";
 import { Palabras } from "@/components/ui/Palabras";
-import { BarraServicios } from "./BarraServicios";
+import { BarajaServicios } from "./BarajaServicios";
 import { SelloNortha } from "./SelloNortha";
 import { beneficios } from "@/lib/content/servicios";
 
 /**
  * Lo que construimos: una frase directa, el sello de Northa, los beneficios
- * para el cliente en seis piezas cortas y la banda de servicios en movimiento,
- * a todo el ancho. La oferta completa vive en el menú «Servicios» y en el
- * asistente; aquí no se repiten tarjetas de servicios.
+ * para el cliente en seis piezas cortas y el banner de servicios en cartas,
+ * que se reparten como al ganar en Solitario. Cada carta abre el asistente
+ * con ese servicio.
  */
 export function Servicios() {
   return (
@@ -30,7 +30,7 @@ export function Servicios() {
         <Reveal delay={80}>
           <ul className="beneficios m-0 grid list-none grid-cols-1 gap-3 p-0 min-[420px]:grid-cols-2 lg:grid-cols-3">
             {beneficios.map((b) => (
-              <li key={b.titulo} className="beneficio">
+              <li key={b.titulo} className="beneficio glass">
                 <span className="beneficio-icono" aria-hidden="true">
                   <b.Icon className="h-5 w-5" strokeWidth={1.6} />
                 </span>
@@ -42,11 +42,11 @@ export function Servicios() {
             ))}
           </ul>
         </Reveal>
-      </div>
 
-      <Reveal delay={120} className="mt-14 sm:mt-20">
-        <BarraServicios />
-      </Reveal>
+        <Reveal delay={120}>
+          <BarajaServicios />
+        </Reveal>
+      </div>
     </section>
   );
 }

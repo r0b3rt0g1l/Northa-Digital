@@ -1,31 +1,44 @@
-import { ShieldCheck } from "lucide-react";
 import { Reveal } from "@/components/ui/Reveal";
-import { BotonConsulta } from "@/components/ui/BotonConsulta";
+import { BotonWhatsapp } from "@/components/ui/BotonWhatsapp";
 import { seguridad } from "@/lib/content/servicios";
+import { DemoAcceso } from "./DemoAcceso";
 
 /**
- * Seguridad y confianza, en una sola pieza: una frase simple sobre la
- * protección y el control de acceso de las plataformas administrativas, sin
- * explicaciones técnicas, herramientas, configuraciones ni procedimientos.
- * Cierra con la invitación a contar el proyecto por WhatsApp.
+ * Seguridad: protección digital, acceso seguro y administración protegida.
+ * A la izquierda, cuatro puntos claros (VPN, login, protección y control de
+ * acceso); a la derecha, una demostración visual del servicio que no es un
+ * formulario ni imita pantallas de terceros. Cierra con WhatsApp directo.
  */
 export function Seguridad() {
   return (
-    <section id="seguridad" aria-labelledby="seguridad-title" className="relative px-5 py-16 sm:px-8 sm:py-24">
-      <Reveal className="confianza card mx-auto flex w-full max-w-[1100px] flex-col items-start gap-6 rounded-[28px] p-6 sm:p-10 md:flex-row md:items-center md:gap-10">
-        <span className="confianza-escudo" aria-hidden="true">
-          <ShieldCheck className="h-8 w-8" strokeWidth={1.5} />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-          <p className="eyebrow m-0">Seguridad</p>
-          <h2 id="seguridad-title" className="text-[clamp(1.5rem,1.2vw+1.15rem,2.1rem)] tracking-[-0.025em]">
-            {seguridad.titular}
-          </h2>
-          <p className="m-0 max-w-[52ch] text-[16px] leading-relaxed text-text-2">{seguridad.description}</p>
+    <section id="seguridad" aria-labelledby="seguridad-title" className="relative px-5 py-20 sm:px-8 sm:py-28">
+      <Reveal className="seguridad-marco glass mx-auto grid w-full max-w-[1200px] gap-10 rounded-[32px] p-6 sm:p-10 lg:grid-cols-[1fr_1.1fr] lg:items-center lg:gap-12 lg:p-12">
+        <div className="flex min-w-0 flex-col gap-6">
+          <div className="flex flex-col gap-3">
+            <p className="eyebrow m-0">Seguridad</p>
+            <h2 id="seguridad-title" className="text-[clamp(1.9rem,2.2vw+1.1rem,3rem)] tracking-[-0.03em]">
+              {seguridad.titular}
+            </h2>
+            <p className="m-0 max-w-[48ch] text-[16.5px] leading-relaxed text-text-2">{seguridad.description}</p>
+          </div>
+          <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
+            {seguridad.puntos.map((p) => (
+              <li key={p.titulo} className="seguridad-punto">
+                <span className="beneficio-icono" aria-hidden="true">
+                  <p.Icon className="h-5 w-5" strokeWidth={1.6} />
+                </span>
+                <span className="flex min-w-0 flex-col gap-1">
+                  <h3 className="text-[15.5px] font-semibold leading-snug tracking-[-0.01em] text-text">{p.titulo}</h3>
+                  <p className="m-0 text-[13.5px] leading-snug text-muted">{p.texto}</p>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div>
+            <BotonWhatsapp className="shrink-0">Cuéntanos tu proyecto</BotonWhatsapp>
+          </div>
         </div>
-        <BotonConsulta icono className="shrink-0">
-          Cuéntanos tu proyecto
-        </BotonConsulta>
+        <DemoAcceso />
       </Reveal>
     </section>
   );

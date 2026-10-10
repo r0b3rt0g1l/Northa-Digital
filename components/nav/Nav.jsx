@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Menu, ShieldCheck, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Logo } from "@/components/ui/Logo";
-import { BotonConsulta } from "@/components/ui/BotonConsulta";
+import { BotonWhatsapp } from "@/components/ui/BotonWhatsapp";
 import { useScrollSpy } from "@/hooks/useScrollSpy";
 import { navSections, ctaPrincipal } from "@/lib/content/nav";
 import { servicios, seguridad } from "@/lib/content/servicios";
@@ -147,13 +147,13 @@ export function Nav() {
         </ul>
 
         <div className="flex items-center gap-1.5">
-          <BotonConsulta icono size="sm" className="hidden whitespace-nowrap pl-2.5 sm:inline-flex">
+          <BotonWhatsapp size="sm" className="hidden whitespace-nowrap pl-2.5 sm:inline-flex">
             {ctaPrincipal.label}
-          </BotonConsulta>
+          </BotonWhatsapp>
           {/* Por debajo de 350 px solo queda el ícono, para que quepa el menú. */}
-          <BotonConsulta icono size="sm" magnetic={false} className="pl-2 pr-4 max-[349px]:pr-2 sm:hidden">
+          <BotonWhatsapp size="sm" magnetic={false} className="pl-2 pr-4 max-[349px]:pr-2 sm:hidden">
             <span className="max-[349px]:sr-only">{ctaPrincipal.short}</span>
-          </BotonConsulta>
+          </BotonWhatsapp>
           <button
             ref={toggleRef}
             type="button"
@@ -253,17 +253,9 @@ export function Nav() {
                 </li>
               ))}
             <li className="mt-2">
-              <BotonConsulta
-                icono
-                className="w-full"
-                magnetic={false}
-                onAbrir={() => {
-                  cerrarMenu();
-                  toggleRef.current?.focus();
-                }}
-              >
+              <BotonWhatsapp className="w-full" magnetic={false} onAbrir={cerrarMenu}>
                 {ctaPrincipal.label}
-              </BotonConsulta>
+              </BotonWhatsapp>
             </li>
           </ul>
         </div>

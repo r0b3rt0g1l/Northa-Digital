@@ -10,7 +10,7 @@ const sizes = {
 
 const variants = {
   primary:
-    "bg-text text-bg shadow-[0_12px_40px_-16px_rgba(79,140,255,0.6)] hover:bg-white hover:shadow-[0_16px_48px_-16px_rgba(79,140,255,0.8)]",
+    "btn-luz bg-text text-bg shadow-[0_12px_40px_-16px_rgba(79,140,255,0.6)] hover:bg-white hover:shadow-[0_16px_48px_-16px_rgba(79,140,255,0.8)]",
   secondary: "glass glass-hover font-medium text-text",
 };
 
