@@ -3,7 +3,7 @@ import { seguridad } from "@/lib/content/servicios";
 import { DesplazableAccesible } from "@/components/ui/DesplazableAccesible";
 
 /**
- * Así se entra al panel de un portal: tres capturas reales del acceso al CMS
+ * Así se entra a tu panel administrativo: tres capturas reales del acceso al CMS
  * (correo en Cloudflare Access, código de un solo uso y login del panel con
  * verificación anti-bots). Son imágenes con su descripción, no formularios:
  * no se puede escribir ni pulsar nada. El dominio privado y el código están

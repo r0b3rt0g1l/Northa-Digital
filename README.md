@@ -53,7 +53,7 @@ menú «Servicios» de la barra superior y en el asistente.
   administrativo seguro, protección para portales municipales, control de acceso
   y monitoreo) y una demostración visual: túnel VPN, login seguro y panel
   administrativo protegido. Es una ilustración: no tiene campos ni botones reales
-  y no imita pantallas de terceros. Debajo, «Así se entra al panel de tu portal»
+  y no imita pantallas de terceros. Debajo, «Así se entra a tu panel administrativo»
   muestra tres capturas reales del acceso al CMS (correo en Cloudflare Access,
   código de un solo uso y login del panel con verificación anti-bots), rotuladas
   como capturas: son imágenes, no formularios. En tableta y celular se deslizan
