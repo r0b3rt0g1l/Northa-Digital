@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
-import { alCambiarMovimiento, movimientoPausado } from "@/lib/movimiento";
 
 /**
  * Fondo espacial en vivo, en un único canvas 2D:
@@ -30,8 +29,7 @@ import { alCambiarMovimiento, movimientoPausado } from "@/lib/movimiento";
  * el teléfono o cambiar el ancho, las estrellas conservan su sitio. El lienzo
  * mide el alto grande de la pantalla (lvh), así que la barra del navegador
  * del celular no lo mueve. Con prefers-reduced-motion o ahorro de datos: un
- * cuadro fijo, sin deriva, paralaje, centelleo ni fugaces. Con «Pausar
- * animaciones» (pie de página) se queda quieto en el cuadro actual.
+ * cuadro fijo, sin deriva, paralaje, centelleo ni fugaces.
  */
 
 const ALTA = 1;
@@ -169,7 +167,6 @@ export function Starfield() {
     let vivo = true;
     let frame = 1000 / FPS;
     let factor = 1; // 1 o 0.5 si el equipo va justo: centellea la mitad
-    let pausaUsuario = movimientoPausado();
     const semilla = (Math.random() * 2 ** 32) >>> 0;
     let width = 0;
     let height = 0;
@@ -186,7 +183,7 @@ export function Starfield() {
     let proximaFugaz = 0;
     let recorrido = 0; // px de deriva acumulados (capa de referencia)
     let scrollSuave = window.scrollY;
-    // Scroll hecho mientras el cielo estaba detenido (pausa, pestaña oculta):
+    // Scroll hecho mientras el cielo estaba detenido (pestaña oculta):
     // no se recupera de golpe al volver, las capas siguen desde donde estaban.
     let desfase = 0;
     let mouse = { x: 0, y: 0 };
@@ -586,7 +583,7 @@ export function Starfield() {
     }
 
     const arrancar = () => {
-      if (!animar || pausaUsuario || rafId != null || timerCuadro != null || document.hidden) return;
+      if (!animar || rafId != null || timerCuadro != null || document.hidden) return;
       ultimo = 0;
       previo = 0;
       desfase += window.scrollY - scrollSuave;
@@ -606,7 +603,7 @@ export function Starfield() {
 
     const fijarObjetivo = (nuevo) => {
       objetivo = nuevo;
-      if (animar && !pausaUsuario) arrancar();
+      if (animar) arrancar();
       else {
         intensidad = nuevo;
         dibujar(animar ? performance.now() : 0);
@@ -688,12 +685,6 @@ export function Starfield() {
       if (document.hidden) detener();
       else arrancar();
     };
-    // «Pausar animaciones»: se queda quieto en el cuadro actual.
-    const quitarMovimiento = alCambiarMovimiento(() => {
-      pausaUsuario = movimientoPausado();
-      if (pausaUsuario) detener();
-      else arrancar();
-    });
     window.addEventListener("resize", onResize);
     if (animar && ratonFino) window.addEventListener("pointermove", onPointer, { passive: true });
     document.addEventListener("visibilitychange", onVisibility);
@@ -703,7 +694,6 @@ export function Starfield() {
       detener();
       clearTimeout(timer);
       io?.disconnect();
-      quitarMovimiento();
       window.removeEventListener("resize", onResize);
       window.removeEventListener("pointermove", onPointer);
       document.removeEventListener("visibilitychange", onVisibility);

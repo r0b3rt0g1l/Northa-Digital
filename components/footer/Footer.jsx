@@ -2,7 +2,6 @@ import { Mail } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { BotonAsistente } from "@/components/ui/BotonAsistente";
 import { BotonWhatsapp } from "@/components/ui/BotonWhatsapp";
-import { PausaMovimiento } from "@/components/ui/PausaMovimiento";
 import { site } from "@/lib/site";
 import { navSections } from "@/lib/content/nav";
 
@@ -71,12 +70,9 @@ export function Footer() {
           </ul>
         </nav>
       </div>
-      <div className="mx-auto mt-4 flex w-full max-w-[1200px] flex-wrap items-center justify-between gap-x-6 px-2">
-        <p className="m-0 text-[13px] text-faint">
-          © {year} {site.name}
-        </p>
-        <PausaMovimiento className="-mr-2" />
-      </div>
+      <p className="mx-auto mt-6 w-full max-w-[1200px] px-2 text-[13px] text-faint">
+        © {year} {site.name}
+      </p>
     </footer>
   );
 }

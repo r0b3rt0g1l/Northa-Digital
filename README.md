@@ -66,10 +66,8 @@ menú «Servicios» de la barra superior y en el asistente.
 - **Tipografía:** Sora para títulos, Manrope para texto y JetBrains Mono para
   etiquetas cortas.
 - Se mueven de forma continua el cielo, los destellos de la señal y el banner de
-  servicios. El botón «Pausar animaciones» del pie los detiene todos y la
-  elección se recuerda en el navegador (`lib/movimiento.js`); el banner tiene
-  además su propio botón de pausa. La demostración de Seguridad dura menos de
-  5 s y se detiene sola. Todo respeta `prefers-reduced-motion`: el cielo queda
+  servicios (con su botón de pausa; se detiene fuera de pantalla). La
+  demostración de Seguridad dura menos de 5 s y se detiene sola. Todo respeta `prefers-reduced-motion`: el cielo queda
   como un cuadro fijo (tampoco se mueve con el scroll) y el banner se muestra
   fijo, centrado y en varias filas. El contenido funciona sin JavaScript.
 

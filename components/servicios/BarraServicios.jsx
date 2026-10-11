@@ -5,8 +5,6 @@ import { Pause, Play } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { servicios, seguridad } from "@/lib/content/servicios";
 import { abrirAsistente } from "@/lib/acciones";
-import { alCambiarMovimiento } from "@/lib/movimiento";
-import { useMovimientoPausado } from "@/hooks/useMovimientoPausado";
 
 const piezas = [...servicios, seguridad];
 // Copias de la fila para que el recorrido no tenga huecos ni en pantallas muy
@@ -27,17 +25,12 @@ const COPIAS = 4;
  * copias de relleno responden al clic y al toque (son las que se ven casi
  * siempre), pero no se leen ni entran en el orden del teclado; al pulsarlas,
  * el foco pasa al botón real, que es al que vuelve al cerrar el asistente.
- * «Pausar animaciones» también la detiene; su propio botón la pone en marcha
- * de nuevo solo a ella, sin tocar la pausa del resto del sitio. Con movimiento reducido, la banda queda quieta, centrada y en
- * varias filas, sin brinco ni pausa. En móvil va más lenta y con botones más
+ * Con movimiento reducido, la banda queda quieta, centrada y en varias filas,
+ * sin brinco ni pausa. En móvil va más lenta y con botones más
  * pequeños. Cada botón abre el asistente con ese servicio.
  */
 export function BarraServicios() {
-  const [pausadaAqui, setPausada] = useState(false);
-  // En marcha solo aquí aunque el resto del sitio esté en pausa.
-  const [forzada, setForzada] = useState(false);
-  const pausaGlobal = useMovimientoPausado();
-  const pausada = pausaGlobal ? !forzada : pausadaAqui;
+  const [pausada, setPausada] = useState(false);
   const [tocada, setTocada] = useState(false);
   const [fuera, setFuera] = useState(false);
   const timer = useRef(null);
@@ -47,11 +40,8 @@ export function BarraServicios() {
   useEffect(() => {
     const io = new IntersectionObserver(([e]) => setFuera(!e.isIntersecting));
     if (raiz.current) io.observe(raiz.current);
-    // Cada vez que cambia la pausa global, la banda vuelve a seguirla.
-    const quitar = alCambiarMovimiento(() => setForzada(false));
     return () => {
       io.disconnect();
-      quitar();
       clearTimeout(timer.current);
     };
   }, []);
@@ -118,8 +108,7 @@ export function BarraServicios() {
         onClick={() => {
           clearTimeout(timer.current);
           setTocada(false);
-          if (pausaGlobal) setForzada((v) => !v);
-          else setPausada((v) => !v);
+          setPausada((v) => !v);
         }}
         aria-label={pausada ? "Reanudar el movimiento de los servicios" : "Pausar el movimiento de los servicios"}
       >

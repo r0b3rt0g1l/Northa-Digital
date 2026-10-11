@@ -625,9 +625,7 @@
   }
   .is-paused,
   .is-paused *,
-  .is-paused *::before,
-  :root[data-movimiento-pausado] .senal *,
-  :root[data-movimiento-pausado] .senal *::before {
+  .is-paused *::before {
     animation-play-state: paused !important;
   }
   @keyframes senal-respira {
