@@ -1,0 +1,6 @@
+{
+  "_comentario": "Fragmento para fusionar en el vercel.json de cada municipio. Día 1 de cada mes a las 13:00 UTC = 06:00 en Sonora.",
+  "crons": [
+    { "path": "/api/asistente/reporte", "schedule": "0 13 1 * *" }
+  ]
+}
